@@ -1,3 +1,9 @@
+import os
+import sys
+
+from structlog import get_logger
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)) + "/..")
 import logging
 from dataclasses import dataclass
 from datetime import datetime
@@ -227,7 +233,7 @@ class DataProcessor:
     """
 
     def __init__(self):
-        self.logger = logging.getLogger(__name__)
+        self.logger = get_logger(__name__)
         self.router = MessageRouter()
 
         # Event handlers for each message type

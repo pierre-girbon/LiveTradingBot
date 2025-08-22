@@ -1,5 +1,12 @@
+# WebSocket
 websockets
 pydantic  # Data validation
+
+# Logging
+structlog
+
+# Config
+python-dotenv
 
 # Testing
 pytest

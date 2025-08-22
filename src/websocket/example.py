@@ -1,25 +1,39 @@
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)) + "/..")
+
 import asyncio
 import logging
 from typing import Any, Dict
 
-from dataprocessor import DataProcessor, KlineData, TickerData, TradeData
-from websocketclient import RequestType, WebSocketClient
+from logger.logger import get_logger
+from websocket.dataprocessor import (DataProcessor, KlineData, TickerData,
+                                     TradeData)
+from websocket.websocketclient import RequestType, WebSocketClient
 
 
 async def main():
-    logging.basicConfig(level=logging.WARNING)
-
     processor = DataProcessor()
 
     # Define Trade handler
     def trade_handler(trade: TradeData):
-        print(f"{trade}")
+        logger = get_logger(__name__)
+        log_entry = {
+            "event_type": trade.event_type,
+            "symbol": trade.symbol,
+            "trade_id": trade.trade_id,
+            "price": trade.price,
+            "quantity": trade.trade_time,
+            "is_buyer_market_maker": trade.is_buyer_market_maker,
+        }
+        logger.info(**log_entry)
 
     processor.set_trade_handler(trade_handler)
 
     # ticker handler
     def ticker_handler(ticker: TickerData):
-        print(f"{ticker}")
+        pass
 
     processor.set_ticker_handler(ticker_handler)
 
@@ -44,15 +58,15 @@ async def main():
     )
     print(f"Subscription result: {result.info}")
 
-    result = await client.send_subscription_request(
-        RequestType.SUBSCRIBE, ["btcusdt@ticker"], id=2
-    )
-    print(f"Subscription result: {result.info}")
+    # result = await client.send_subscription_request(
+    #     RequestType.SUBSCRIBE, ["btcusdt@ticker"], id=2
+    # )
+    # print(f"Subscription result: {result.info}")
 
     # Wait and check subscription statuses
     await asyncio.sleep(3)
     print(f"Subscription 1 status: {client.get_subscription_status(1)}")
-    print(f"Subscription 2 status: {client.get_subscription_status(2)}")
+    # print(f"Subscription 2 status: {client.get_subscription_status(2)}")
 
     try:
         await client_task

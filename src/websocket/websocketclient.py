@@ -8,6 +8,11 @@ Todo:
 
 """
 
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)) + "/..")
+
 import asyncio
 import json
 import logging
@@ -18,6 +23,8 @@ from typing import Any, Callable, Dict, List, Optional
 
 import websockets
 from websockets.exceptions import ConnectionClosed, WebSocketException
+
+from logger.logger import get_logger
 
 
 # NEW: Enums and dataclasses for subscription management
@@ -99,9 +106,7 @@ class WebSocketClient:
         self.subscriptions: Dict[int, Subscription] = {}
 
         # Setup logging
-        # TODO: Adapt to logging system
-        self.logger = logging.getLogger(__name__)
-        logging.basicConfig(level=logging.INFO)
+        self.logger = get_logger(__name__)
 
     async def connect(
         self,
