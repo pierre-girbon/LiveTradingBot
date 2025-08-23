@@ -1,16 +1,9 @@
-import os
-import sys
-
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)) + "/..")
-
 import asyncio
-import logging
 from typing import Any, Dict
 
-from logger.logger import get_logger
-from websocket.dataprocessor import (DataProcessor, KlineData, TickerData,
-                                     TradeData)
-from websocket.websocketclient import RequestType, WebSocketClient
+from modules.dataprocessor import DataProcessor, TickerData, TradeData
+from modules.logger import get_logger
+from modules.websocketclient import RequestType, WebSocketClient
 
 
 async def main():

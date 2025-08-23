@@ -1,8 +1,13 @@
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(__name__), "src/"))
+
 from datetime import datetime, timezone
 
-from src.websocket.dataprocessor import (AggTradeData, MessageRouter,
-                                         MessageType, MiniTicker, TickerData,
-                                         TradeData)
+from src.modules.dataprocessor import (AggTradeData, MessageRouter,
+                                       MessageType, MiniTicker, TickerData,
+                                       TradeData)
 
 
 class TestMessageRouter:

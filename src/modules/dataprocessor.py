@@ -1,9 +1,3 @@
-import os
-import sys
-
-from structlog import get_logger
-
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)) + "/..")
 import logging
 from dataclasses import dataclass
 from datetime import datetime
@@ -11,6 +5,8 @@ from enum import Enum
 from typing import Any, Callable, Dict, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from modules.logger import get_logger
 
 
 class MessageType(Enum):

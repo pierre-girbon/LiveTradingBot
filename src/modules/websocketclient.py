@@ -8,14 +8,8 @@ Todo:
 
 """
 
-import os
-import sys
-
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)) + "/..")
-
 import asyncio
 import json
-import logging
 import ssl
 from dataclasses import dataclass
 from enum import Enum
@@ -24,7 +18,7 @@ from typing import Any, Callable, Dict, List, Optional
 import websockets
 from websockets.exceptions import ConnectionClosed, WebSocketException
 
-from logger.logger import get_logger
+from modules.logger import get_logger
 
 
 # NEW: Enums and dataclasses for subscription management

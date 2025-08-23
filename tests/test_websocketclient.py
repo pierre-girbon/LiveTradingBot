@@ -1,3 +1,7 @@
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(__name__), "src/"))
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -5,9 +9,9 @@ import pytest
 from websockets.exceptions import ConnectionClosed
 
 # Import your WebSocket client classes
-from src.websocket.websocketclient import (RequestType, SendSubscriptionResult,
-                                           Subscription, SubscriptionStatus,
-                                           WebSocketClient)
+from src.modules.websocketclient import (RequestType, SendSubscriptionResult,
+                                         Subscription, SubscriptionStatus,
+                                         WebSocketClient)
 
 
 class TestWebSocketClientBasic:
