@@ -1,66 +1,92 @@
 import asyncio
-from typing import Any, Dict
+from datetime import datetime, timezone
+from decimal import Decimal
 
-from modules.dataprocessor import DataProcessor, TickerData, TradeData
-from modules.logger import get_logger
+from modules.dataprocessor import DataProcessor
+from modules.portfolio_manager import PortfolioManager, TradeEvent, TradeType
 from modules.websocketclient import RequestType, WebSocketClient
 
 
+def check_position(portfolio: PortfolioManager):
+    # Check position
+    position = portfolio.get_position("BTCUSDT")
+    if position:
+        print(f"Position: {position.quantity} @ avg {position.avg_price}")
+        print(f"Current price: {position.current_price}")
+        print(f"Unrealized P&L: {position.unrealized_pnl}")
+        print(f"Side: {position.side.value}")
+
+    # Test available balance calculation
+    available = portfolio.calculate_available_balance("BTCUSDT", Decimal("2"))
+    print(f"Available balance (with 2 locked): {available}")
+
+
 async def main():
+    # Create a live data processor
     processor = DataProcessor()
 
-    # Define Trade handler
-    def trade_handler(trade: TradeData):
-        logger = get_logger(__name__)
-        log_entry = {
-            "event_type": trade.event_type,
-            "symbol": trade.symbol,
-            "trade_id": trade.trade_id,
-            "price": trade.price,
-            "quantity": trade.trade_time,
-            "is_buyer_market_maker": trade.is_buyer_market_maker,
-        }
-        logger.info(**log_entry)
+    # Create portfolio manager
+    portfolio = PortfolioManager()
 
-    processor.set_trade_handler(trade_handler)
+    # Use kline data to handle prices updates
+    processor.set_kline_handler(portfolio.handle_kline_data)
 
-    # ticker handler
-    def ticker_handler(ticker: TickerData):
-        pass
-
-    processor.set_ticker_handler(ticker_handler)
-
-    # Create WebSocket client
+    # Create and spawn a websocket client
     client = WebSocketClient("wss://stream.binance.com:9443/ws")
-
-    # define handler message
     client.set_message_handler(processor.process_message)
-
-    # Define response handler
-    def response_handler(msg: Dict[str, Any]):
-        pass
-
-    client.set_response_handler(response_handler)
-
-    # Start the client in a separate task
     client_task = asyncio.create_task(client.run_with_reconnect())
-    # wait for connection
-    await asyncio.sleep(5)
+    await asyncio.sleep(5)  # wait for connection
+    # Send subscription requests using the new API
     result = await client.send_subscription_request(
-        RequestType.SUBSCRIBE, ["btcusdt@trade"], id=1
+        RequestType.SUBSCRIBE, ["btcusdt@kline_1m"], id=1
     )
     print(f"Subscription result: {result.info}")
+    await asyncio.sleep(5)  # wait for subscription
 
-    # result = await client.send_subscription_request(
-    #     RequestType.SUBSCRIBE, ["btcusdt@ticker"], id=2
-    # )
-    # print(f"Subscription result: {result.info}")
+    # Example trades
+    trade1 = TradeEvent(
+        symbol="BTCUSDT",
+        trade_type=TradeType.BUY,
+        quantity=Decimal(10),
+        price=Decimal(50000),
+        timestamp=datetime.now(tz=timezone.utc),
+    )
 
-    # Wait and check subscription statuses
-    await asyncio.sleep(3)
-    print(f"Subscription 1 status: {client.get_subscription_status(1)}")
-    # print(f"Subscription 2 status: {client.get_subscription_status(2)}")
+    trade2 = TradeEvent(
+        symbol="BTCUSDT",
+        trade_type=TradeType.BUY,
+        quantity=Decimal(5),
+        price=Decimal(55000),
+        timestamp=datetime.now(tz=timezone.utc),
+    )
 
+    trade3 = TradeEvent(
+        symbol="BTCUSDT",
+        trade_type=TradeType.SELL,
+        quantity=Decimal(3),
+        price=Decimal(60000),
+        timestamp=datetime.now(tz=timezone.utc),
+    )
+
+    # Process trades
+    check_position(portfolio)
+    await asyncio.sleep(2)
+    portfolio.process_trade(trade1)  # Buy 10 BTC @ 50k
+    check_position(portfolio)
+    await asyncio.sleep(2)
+    portfolio.process_trade(trade2)  # Buy 5 BTC @ 55k
+    check_position(portfolio)
+    await asyncio.sleep(2)
+    portfolio.process_trade(trade3)  # Sell 3 BTC @ 60k
+    check_position(portfolio)
+    await asyncio.sleep(2)
+
+    # Update price
+    # portfolio.update_price("BTCUSDT", Decimal("58000"), datetime.now(tz=timezone.utc))
+
+    portfolio.close()
+
+    # Wait for the client task
     try:
         await client_task
     except asyncio.CancelledError:

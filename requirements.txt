@@ -2,6 +2,9 @@
 websockets
 pydantic  # Data validation
 
+# Database
+SQLAlchemy
+
 # Logging
 structlog
 
