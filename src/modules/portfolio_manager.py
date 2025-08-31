@@ -14,8 +14,7 @@ from typing import Dict, Optional
 
 from dotenv import load_dotenv
 from sqlalchemy import Column, DateTime, Float, Integer, String, create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import declarative_base, sessionmaker
 
 from modules.logger import get_logger
 
