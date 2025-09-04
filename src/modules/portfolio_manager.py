@@ -1,8 +1,73 @@
 """
+# Portfolio Manager
 Portfolio Management System for Trading Bot
 
 This module handles position tracking, P&L calculations, and portfolio state management.
 Integrates with the existing DataProcessor to receive real-time market data.
+
+## Components
+### Database
+- Position table definition: Position
+- Trade table definition: Trade
+
+### Types / Dataclasses
+- Position: PositionInfo
+- Trades: TradeEvent
+
+## Example usage
+```python
+if __name__ == "__main__":
+
+    # Create portfolio manager
+    portfolio = PortfolioManager()
+
+    # Example trades
+    trade1 = TradeEvent(
+        symbol="BTCUSDT",
+        trade_type=TradeType.BUY,
+        quantity=Decimal("10"),
+        price=Decimal("50000"),
+        timestamp=datetime.now(tz=timezone.utc),
+    )
+
+    trade2 = TradeEvent(
+        symbol="BTCUSDT",
+        trade_type=TradeType.BUY,
+        quantity=Decimal("5"),
+        price=Decimal("55000"),
+        timestamp=datetime.now(tz=timezone.utc),
+    )
+
+    trade3 = TradeEvent(
+        symbol="BTCUSDT",
+        trade_type=TradeType.SELL,
+        quantity=Decimal("3"),
+        price=Decimal("60000"),
+        timestamp=datetime.now(tz=timezone.utc),
+    )
+
+    # Process trades
+    portfolio.process_trade(trade1)  # Buy 10 BTC @ 50k
+    portfolio.process_trade(trade2)  # Buy 5 BTC @ 55k
+    portfolio.process_trade(trade3)  # Sell 3 BTC @ 60k
+
+    # Update price
+    portfolio.update_price("BTCUSDT", Decimal("58000"), datetime.now(tz=timezone.utc))
+
+    # Check position
+    position = portfolio.get_position("BTCUSDT")
+    if position:
+        print(f"Position: {position.quantity} @ avg {position.avg_price}")
+        print(f"Current price: {position.current_price}")
+        print(f"Unrealized P&L: {position.unrealized_pnl}")
+        print(f"Side: {position.side.value}")
+
+    # Test available balance calculation
+    available = portfolio.calculate_available_balance("BTCUSDT", Decimal("2"))
+    print(f"Available balance (with 2 locked): {available}")
+
+    portfolio.close()
+```
 """
 
 import os
@@ -25,34 +90,8 @@ load_dotenv()
 getcontext().prec = 28
 
 # Database setup
+#########################################
 Base = declarative_base()
-
-
-class PositionSide(Enum):
-    """Position side enumeration"""
-
-    LONG = "LONG"
-    SHORT = "SHORT"
-    FLAT = "FLAT"  # No position
-
-
-class TradeType(Enum):
-    """Trade type enumeration"""
-
-    BUY = "BUY"
-    SELL = "SELL"
-
-
-@dataclass
-class TradeEvent:
-    """Represents a trade event (buy/sell)"""
-
-    symbol: str
-    trade_type: TradeType  # BUY or SELL
-    quantity: Decimal  # Always positive
-    price: Decimal
-    timestamp: datetime
-    trade_id: Optional[str] = None
 
 
 class Position(Base):
@@ -82,29 +121,84 @@ class Trade(Base):
     trade_id = Column(String(50), nullable=True)
 
 
+# Positions Dataclass
+######################
+class PositionSide(Enum):
+    """Position side enumeration"""
+
+    LONG = "LONG"
+    SHORT = "SHORT"
+    FLAT = "FLAT"  # No position
+
+
 @dataclass
 class PositionInfo:
     """Data class for position information"""
 
     symbol: str
     quantity: Decimal
+    """Position quantity.
+    - Positive for a long position
+    - Negative for a short position
+    - 0 for a flat position"""
     avg_price: Decimal
+    """Average cost of acquisition of asset
+
+    E.g. Buy x asset @ P1 and y asset @ P2 -> average price = (x*P1+y*P2)/(x+y)"""
     current_price: Decimal
+    """Current price of asset"""
     unrealized_pnl: Decimal
+    """
+    - For long positions: (current_price - avg_price) * quantity
+    - For short positions: (avg_price - current_price) * |quantity|
+    - 0 otherwise
+    """
     side: PositionSide
+    """LONG/SHORT/FLAT"""
     last_updated: datetime
 
     @property
     def market_value(self) -> Decimal:
-        """Calculate current market value of the position"""
+        """Calculate current market value of the position
+
+        |quantity| * current_price
+        """
         return abs(self.quantity) * self.current_price
 
     @property
     def cost_basis(self) -> Decimal:
-        """Calculate cost basis of the position"""
+        """Calculate cost basis of the position:
+
+        |quantity| * average_price
+        """
         return abs(self.quantity) * self.avg_price
 
 
+# Trades Dataclass
+#############################
+class TradeType(Enum):
+    """Trade type enumeration"""
+
+    BUY = "BUY"
+    SELL = "SELL"
+
+
+@dataclass
+class TradeEvent:
+    """Represents a trade event (buy/sell)"""
+
+    symbol: str
+    trade_type: TradeType  # BUY or SELL
+    """BUY/SELL"""
+    quantity: Decimal  # Always positive
+    """Always positive"""
+    price: Decimal
+    timestamp: datetime
+    trade_id: Optional[str] = None
+
+
+# Portfolio Manager
+##################################
 class PortfolioManager:
     """
     Manages trading positions and portfolio state.
@@ -116,19 +210,31 @@ class PortfolioManager:
     - Integration with DataProcessor handlers
     """
 
+    # TODO: ? Provide database engine and session from a external module
     def __init__(
         self, db_url: str = os.environ.get("DB_PATH", "sqlite:///portfolio.db")
     ):
+        """Portfolio init
+        - Load logger
+        - Setup database
+        - load position from database into memory
+        """
         self.logger = get_logger(__name__)
 
         # Database setup
         self.engine = create_engine(db_url)
+        """Database Engine"""
         Base.metadata.create_all(self.engine)
         Session = sessionmaker(bind=self.engine)
         self.session = Session()
+        """Database Session"""
 
         # In-memory position cache for fast access
         self.positions: Dict[str, PositionInfo] = {}
+        """In memory dictionaty of positions
+        - Key: PositionInfo.symbol
+        - Value: PositionInfo
+        """
 
         # Load existing positions from database
         self._load_positions_from_db()
@@ -161,6 +267,7 @@ class PortfolioManager:
         else:
             return PositionSide.FLAT
 
+    # TODO: ? Move into PositionInfo as @property method
     def _calculate_unrealized_pnl(self, position: PositionInfo) -> Decimal:
         """Calculate unrealized P&L for a position"""
         if position.side == PositionSide.FLAT:
@@ -179,11 +286,16 @@ class PortfolioManager:
         """
         Process a trade event and update position.
 
-        Args:
-            trade: TradeEvent containing trade information
+        **Args:**
+        - trade: TradeEvent containing trade information
 
-        Returns:
-            bool: True if trade processed successfully
+        **Returns:**
+        - bool: True if trade processed successfully
+
+        **Flow**
+        - Create a new position or update existing one
+        - Recalculate unrealized P&L
+        - Save trade and position to database
         """
         try:
             symbol = trade.symbol
@@ -260,13 +372,13 @@ class PortfolioManager:
         """
         Update current price for a symbol and recalculate P&L.
 
-        Args:
-            symbol: Trading symbol
-            price: Current price
-            timestamp: Price timestamp
+        **Args:**
+        - symbol: Trading symbol
+        - price: Current price
+        - timestamp: Price timestamp
 
-        Returns:
-            bool: True if price updated successfully
+        **Returns:**
+        - bool: True if price updated successfully
         """
         try:
             if symbol in self.positions:
@@ -347,12 +459,12 @@ class PortfolioManager:
         """
         Calculate available balance for trading (used by OrderManager).
 
-        Args:
-            symbol: Trading symbol
-            locked_quantity: Quantity currently locked in pending orders
+        **Args:**
+        - symbol: Trading symbol
+        - locked_quantity: Quantity currently locked in pending orders
 
-        Returns:
-            Available quantity that can be sold (for long positions)
+        **Returns:**
+        - Available quantity that can be sold (for long positions)
         """
         position = self.positions.get(symbol)
         if not position or position.side != PositionSide.LONG:
@@ -361,6 +473,7 @@ class PortfolioManager:
         return max(Decimal("0"), position.quantity - locked_quantity)
 
     # Handler methods for integration with DataProcessor
+    # TODO: ? Change design to self.on_trade and set_trade_handler
     def handle_trade_data(self, trade_data):
         """
         Handler for trade data from DataProcessor.

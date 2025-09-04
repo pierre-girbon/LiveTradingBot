@@ -1,3 +1,65 @@
+"""
+Converts JSON data messages received by WebSocketClient
+
+### Example Usage
+```python
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+
+    processor = DataProcessor()
+
+    # Define handlers for each message type
+    def handle_trade(trade: TradeData):
+        print(f"🔄 TRADE: {trade.symbol} {trade.quantity} @ {trade.price}")
+
+    def handle_agg_trade(agg_trade: AggTradeData):
+        print(
+            f"📊 AGG_TRADE: {agg_trade.symbol} {agg_trade.quantity} @ {agg_trade.price}"
+        )
+
+    def handle_kline(kline: KlineData):
+        k = kline.kline
+        print(
+            f"📈 KLINE: {kline.symbol} {k.interval} O:{k.open_price} H:{k.high_price} L:{k.low_price} C:{k.close_price}"
+        )
+
+    def handle_ticker(ticker: TickerData):
+        print(
+            f"🎯 TICKER: {ticker.symbol} Last:{ticker.last_price} Change:{ticker.price_change_percent}%"
+        )
+
+    def handle_error(raw_msg: str, error: str):
+        print(f"❌ ERROR: {error}")
+
+    # Set all handlers
+    processor.set_trade_handler(handle_trade)
+    processor.set_agg_trade_handler(handle_agg_trade)
+    processor.set_kline_handler(handle_kline)
+    processor.set_ticker_handler(handle_ticker)
+    processor.set_error_handler(handle_error)
+
+    # Test with your example messages
+    test_messages = [
+        # Trade message
+        \"""{"e": "trade", "E": 1672515782136, "s": "BNBBTC", "t": 12345, "p": "0.001", "q": "100", "T": 1672515782136, "m": true, "M": true}\""",
+        # AggTrade message
+        \"""{"e": "aggTrade", "E": 1672515782136, "s": "BNBBTC", "a": 12345, "p": "0.001", "q": "100", "f": 100, "l": 105, "T": 1672515782136, "m": true, "M": true}\""",
+        # Kline message
+        \"""{"e": "kline", "E": 1672515782136, "s": "BNBBTC", "k": {"t": 1672515780000, "T": 1672515839999, "s": "BNBBTC", "i": "1m", "f": 100, "L": 200, "o": "0.0010", "c": "0.0020", "h": "0.0025", "l": "0.0015", "v": "1000", "n": 100, "x": false, "q": "1.0000", "V": "500", "Q": "0.500", "B": "123456"}}\""",
+        # Ticker message
+        \"""{"e": "24hrTicker", "E": 1672515782136, "s": "BNBBTC", "p": "0.0015", "P": "250.00", "w": "0.0018", "x": "0.0009", "c": "0.0025", "Q": "10", "b": "0.0024", "B": "10", "a": "0.0026", "A": "100", "o": "0.0010", "h": "0.0025", "l": "0.0010", "v": "10000", "q": "18", "O": 0, "C": 86400000, "F": 0, "L": 18150, "n": 18151}\""",
+    ]
+
+    print("Testing all message types:")
+    for msg in test_messages:
+        result = processor.process_message(msg)
+        if not result.success:
+            print(f"❌ Failed: {result.error}")
+        print()
+```
+
+"""
+
 import logging
 from dataclasses import dataclass
 from datetime import datetime
@@ -25,16 +87,21 @@ class TradeData(BaseModel):
 
     event_type: str = Field(validation_alias="e")
     symbol: str = Field(validation_alias="s")
+    """Ticker symbol"""
     trade_id: int = Field(validation_alias="t")
     price: float = Field(validation_alias="p")
+    """Price"""
     quantity: float = Field(validation_alias="q")
+    """Quantity"""
     trade_time: datetime = Field(validation_alias="T")
+    """Trade date"""
     is_buyer_market_maker: bool = Field(validation_alias="m")
 
     model_config = ConfigDict(extra="ignore")
 
     @field_validator("price", "quantity")
     def validate_positive_numbers(cls, v):
+        """Price and quantity should be positive"""
         if v <= 0:
             raise ValueError("Price and quantity must be positive")
         return v
@@ -190,11 +257,11 @@ class MessageRouter:
         """
         Route a JSON message to the appropriate Pydantic model.
 
-        Args:
-            json_data: Parsed JSON data
+        ### Args:
+        - json_data: Parsed JSON data
 
-        Returns:
-            ValidationResult with validated data or error
+        ### Returns:
+        - ValidationResult with validated data or error
         """
         try:
             # Get event type
@@ -226,6 +293,13 @@ class MessageRouter:
 class DataProcessor:
     """
     Enhanced data processor that handles multiple message types.
+
+    ### Handlers:
+    - on_trade: called when a binance trade message is received
+    - on_agg_trade: called when a binance aggregated trade message is received
+    - on_kline: called when a biance kline message is received
+    - on_ticker: called when a binance ticker message is received
+    - on_validation_error: called when a message cannot be validated
     """
 
     def __init__(self):
@@ -241,13 +315,13 @@ class DataProcessor:
 
     def process_message(self, json_data: Dict[str, Any]) -> ValidationResult:
         """
-        Process a raw WebSocket message into validated data.
+        Process a JSON WebSocket message into validated data.
 
-        Args:
-            raw_message: Raw JSON string from WebSocket
+        ### Args:
+        - raw_message: Raw JSON string from WebSocket
 
-        Returns:
-            ValidationResult with either valid data or error info
+        ### Returns:
+        - ValidationResult with either valid data or error info
         """
         # Route to appropriate model and validate
         result = self.router.route_message(json_data)

@@ -1,10 +1,91 @@
-"""websocketclient.py
-
+"""
 Asynchronous websocket client for Binance
 
-Todo:
+### Todo:
 - [ ] Make it more generic to support multiple websocker providers
 - [ ] Maybe separate subscription management from the websocket client
+
+### Example usage
+```python
+async def main():
+    # Create client instance for Binance WebSocket
+    client = WebSocketClient("wss://stream.binance.com:9443/ws")
+
+    # Define event handlers
+    def on_message_received(data: Dict[str, Any]):  # MODIFIED: Now receives dict
+        print(f"Stream data received: {data}")
+
+        # Handle different event types
+        if data.get("e") == "aggTrade":
+            print(
+                f"Aggregate trade: {data['s']} - Price: {data['p']}, Qty: {data['q']}"
+            )
+        elif data.get("e") == "24hrTicker":
+            print(f"24hr ticker: {data['s']} - Price change: {data['P']}%")
+
+    def on_response_received(
+        data: Dict[str, Any],
+    ):  # NEW: Handle subscription responses
+        print(f"Subscription response: {data}")
+
+    def on_connected():
+        print("Connected to Binance WebSocket!")
+
+    def on_disconnected():
+        print("Disconnected from Binance WebSocket!")
+
+    def on_error_occurred(error: Exception):
+        print(f"Error occurred: {error}")
+
+    # Set event handlers
+    client.set_message_handler(on_message_received)
+    client.set_response_handler(on_response_received)  # NEW: Set response handler
+    client.set_connect_handler(on_connected)
+    client.set_disconnect_handler(on_disconnected)
+    client.set_error_handler(on_error_occurred)
+
+    # Start the client in a separate task
+    client_task = asyncio.create_task(client.run_with_reconnect())
+
+    # Wait a bit for connection
+    await asyncio.sleep(2)
+
+    # NEW: Send subscription requests using the new API
+    result = await client.send_subscription_request(
+        RequestType.SUBSCRIBE, ["btcusdt@aggTrade", "ethusdt@aggTrade"], id=1
+    )
+    print(f"Subscription result: {result.info}")
+
+    result = await client.send_subscription_request(
+        RequestType.SUBSCRIBE, ["btcusdt@ticker"], id=2
+    )
+    print(f"Subscription result: {result.info}")
+
+    # Wait and check subscription statuses
+    await asyncio.sleep(3)
+    print(f"Subscription 1 status: {client.get_subscription_status(1)}")
+    print(f"Subscription 2 status: {client.get_subscription_status(2)}")
+
+    # Get all active subscriptions
+    active_subs = client.get_subscriptions_by_status(SubscriptionStatus.ACTIVE)
+    print(f"Active subscriptions: {len(active_subs)}")
+
+    # Let it run for a while to see data
+    await asyncio.sleep(10)
+
+    # Gracefully shutdown
+    await client.disconnect()
+    client_task.cancel()
+
+    try:
+        await client_task
+    except asyncio.CancelledError:
+        pass
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
 
 """
 
@@ -24,11 +105,23 @@ from modules.logger import get_logger
 # NEW: Enums and dataclasses for subscription management
 @dataclass
 class SendSubscriptionResult:
+    """Subscription request result
+
+    Returned by WebSocketClient.send_subscription_request
+    """
+
     result: bool
+    """Result"""
     info: str
+    """Message returned by the server on subscription request"""
 
 
 class SubscriptionStatus(Enum):
+    """State of the subscription
+
+    Used in Subscription.status
+    """
+
     PENDING = "PENDING"
     ACTIVE = "ACTIVE"
     FAILED = "FAILED"
@@ -63,27 +156,34 @@ class WebSocketClient:
     Enhanced with Binance-style subscription management.
 
     Features:
-        Manage reconnection
-        Heartbeat
-        Event Handlers:
-            on connection
-            on disconnection
-            on error
-            on response (management message from the server)
-            on message (data messages from the server)
-        Send messages to webserver
-            str messages
-            JSON messages
+    - Manage reconnection
+    - Heartbeat
+    - Event Handlers:
+        - on connection
+        - on disconnection
+        - on error
+        - on response (management message from the server)
+        - on message (data messages from the server)
+    - Send messages to webserver
+        - str messages
+        - JSON messages
+    - Subscription Management
     """
 
     def __init__(self, uri: str):
         self.uri = uri
+        """URI of the server"""
         self.websocket: Optional[websockets.ClientConnection] = None
         self.running = False
+        """State of the connection"""
         self.reconnect_interval = 5  # seconds
+        """Reconnection period in seconds"""
         self.heartbeat_interval = 30  # seconds
+        """Period of heartbeats in seconds"""
         self.max_reconnect_attempts = 10
+        """Max reconnection attempts number"""
         self.reconnect_attempts = 0
+        """Number of reconnections"""
 
         # Event handlers
         self.on_message: Optional[Callable[[Dict[str, Any]], None]] = (
@@ -107,15 +207,18 @@ class WebSocketClient:
         ssl_context: Optional[ssl.SSLContext] = None,
         extra_headers: Optional[Dict[str, str]] = None,
     ) -> bool:
-        """
-        Connect to the WebSocket server.
+        """Connect to the WebSocket server.
 
-        Args:
-            ssl_context: SSL context for secure connections
-            extra_headers: Additional headers to send with the connection
+        # Args:
+        - ssl_context: SSL context for secure connections
+        - extra_headers: Additional headers to send with the connection
 
-        Returns:
-            bool: True if connection successful, False otherwise
+        # Returns:
+        - bool: True if connection successful, False otherwise
+
+        # Handlers:
+        - WebSocketClient.on_connect
+        - WebSocketClient.on_error
         """
         try:
             self.logger.info(f"Connecting to {self.uri}")
@@ -146,22 +249,30 @@ class WebSocketClient:
             else:
                 self.websocket = await websockets.connect(self.uri, **connect_kwargs)
 
+            # Set reconnection attempts to 0
             self.reconnect_attempts = 0
             self.logger.info("WebSocket connection established")
 
+            # Call on_connect handler if defined
             if self.on_connect:
                 self.on_connect()
 
             return True
 
+        # Connection error
         except Exception as e:
             self.logger.error(f"Failed to connect: {e}")
+            # Call on_error handler if defined
             if self.on_error:
                 self.on_error(e)
             return False
 
     async def disconnect(self):
-        """Disconnect from the WebSocket server."""
+        """Disconnect from the WebSocket server.
+
+        # Handlers
+        - WebSocketClient.on_disconnect
+        """
         self.running = False
         if self.websocket:
             await self.websocket.close()
@@ -172,14 +283,13 @@ class WebSocketClient:
                 self.on_disconnect()
 
     async def send_message(self, message: str) -> bool:
-        """
-        Send a message to the WebSocket server.
+        """Send a string message to the WebSocket server.
 
-        Args:
-            message: Message to send
+        # Args
+        - message: string message to send
 
-        Returns:
-            bool: True if message sent successfully, False otherwise
+        # Returns
+        - bool: True if message sent successfully, False otherwise
         """
         if not self.websocket:
             self.logger.error("Cannot send message: not connected")

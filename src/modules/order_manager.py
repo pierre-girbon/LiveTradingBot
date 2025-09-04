@@ -4,6 +4,75 @@ Order Management System for Trading Bot
 This module handles order validation, placement, tracking, and execution.
 Acts as an intermediary between the trading bot and the exchange API.
 Integrates with PortfolioManager to ensure proper position tracking.
+
+## Components
+### Databases
+- OrderRecord
+
+### Types / Dataclasses
+- Orders:
+    - MarketOrder
+    - LimitOrder
+    - StopOrder
+
+## Example usage
+```python
+if __name__ == "__main__":
+    import logging
+
+    from portfolio_manager import PortfolioManager
+
+    logging.basicConfig(level=logging.INFO)
+
+    # Create portfolio manager and order manager
+    portfolio = PortfolioManager()
+    order_manager = OrderManager(portfolio)
+
+    # Example: Place some orders
+    print("=== Testing Order Management ===\n")
+
+    # First, let's add some initial position to portfolio for testing
+    initial_trade = TradeEvent(
+        symbol="BTCUSDT",
+        trade_type=TradeType.BUY,
+        quantity=Decimal("10"),
+        price=Decimal("50000"),
+        timestamp=datetime.now(tz=timezone.utc),
+    )
+    portfolio.process_trade(initial_trade)
+    portfolio.update_price("BTCUSDT", Decimal("52000"), datetime.now(tz=timezone.utc))
+
+    print(f"Initial position: {portfolio.get_position('BTCUSDT').quantity} BTC")
+
+    # Test market order
+    order_id_1 = order_manager.place_market_order(
+        "BTCUSDT", TradeType.SELL, Decimal("3")
+    )
+    print(f"Placed market order: {order_id_1}")
+
+    # Test limit order
+    order_id_2 = order_manager.place_limit_order(
+        "BTCUSDT", TradeType.SELL, Decimal("2"), Decimal("55000")
+    )
+    print(f"Placed limit order: {order_id_2}")
+
+    # Check positions after orders
+    position = portfolio.get_position("BTCUSDT")
+    print(f"\nFinal position: {position.quantity} BTC @ avg {position.avg_price}")
+    print(f"Unrealized P&L: {position.unrealized_pnl}")
+
+    # Show active orders
+    active_orders = order_manager.get_active_orders()
+    print(f"\nActive orders: {len(active_orders)}")
+    for order in active_orders:
+        print(
+            f"- {order.order_id}: {order.trade_type.value} {order.quantity_remaining} {order.symbol} @ {order.get_reference_price()}"
+        )
+
+    # Clean up
+    order_manager.close()
+    portfolio.close()
+```
 """
 
 import os
@@ -29,9 +98,32 @@ load_dotenv()
 getcontext().prec = 28
 
 # Database setup
+#########################""
 Base = declarative_base()
 
 
+class OrderRecord(Base):
+    """SQLAlchemy model for order storage"""
+
+    __tablename__ = "orders"
+
+    id = Column(Integer, primary_key=True)
+    order_id = Column(String(50), unique=True, nullable=False)
+    symbol = Column(String(20), nullable=False)
+    trade_type = Column(String(10), nullable=False)
+    order_type = Column(String(10), nullable=False)
+    quantity_ordered = Column(Float, nullable=False)
+    quantity_filled = Column(Float, nullable=False, default=0.0)
+    filled_price = Column(Float, nullable=False, default=0.0)
+    reference_price = Column(Float, nullable=True)  # limit_price or stop_price
+    order_status = Column(String(20), nullable=False)
+    creation_date = Column(DateTime, nullable=False)
+    last_updated = Column(DateTime, nullable=False)
+    exchange_order_id = Column(String(100), nullable=True)
+
+
+# Types / Dataclasses
+#######################
 class OrderStatus(Enum):
     """Order status enumeration"""
 
@@ -145,26 +237,8 @@ class StopOrder(BaseOrder):
 Order = Union[MarketOrder, LimitOrder, StopOrder]
 
 
-class OrderRecord(Base):
-    """SQLAlchemy model for order storage"""
-
-    __tablename__ = "orders"
-
-    id = Column(Integer, primary_key=True)
-    order_id = Column(String(50), unique=True, nullable=False)
-    symbol = Column(String(20), nullable=False)
-    trade_type = Column(String(10), nullable=False)
-    order_type = Column(String(10), nullable=False)
-    quantity_ordered = Column(Float, nullable=False)
-    quantity_filled = Column(Float, nullable=False, default=0.0)
-    filled_price = Column(Float, nullable=False, default=0.0)
-    reference_price = Column(Float, nullable=True)  # limit_price or stop_price
-    order_status = Column(String(20), nullable=False)
-    creation_date = Column(DateTime, nullable=False)
-    last_updated = Column(DateTime, nullable=False)
-    exchange_order_id = Column(String(100), nullable=True)
-
-
+# Order Manager
+#####################
 @dataclass
 class OrderValidationResult:
     """Result of order validation"""
@@ -191,6 +265,13 @@ class OrderManager:
         portfolio_manager: PortfolioManager,
         db_url: str = os.environ.get("DB_PATH", "sqlite:///orders.db"),
     ):
+        """OrderManager Init
+
+        **Flow:**
+        - Init Logger
+        - Setup Database
+        - Load orders from database to memory
+        """
         self.logger = get_logger(__name__)
         self.portfolio_manager = portfolio_manager
 
@@ -202,7 +283,15 @@ class OrderManager:
 
         # In-memory order tracking
         self.orders: Dict[str, Order] = {}
+        """Dictionary of orders:
+        - Key: UUID
+        - Value: Order (Market, Limit or Stop)
+        """
         self.orders_by_symbol: Dict[str, List[str]] = {}
+        """Dictionary of orders by symbol
+        - Key: symbol
+        - Value: List[Order.order_id]
+        """
 
         # Load existing orders from database
         self._load_orders_from_db()
@@ -282,13 +371,13 @@ class OrderManager:
         """
         Validate if an order can be placed.
 
-        Args:
-            symbol: Trading symbol
-            trade_type: BUY or SELL
-            quantity: Quantity to trade
+        **Args:**
+        - symbol: Trading symbol
+        - trade_type: BUY or SELL
+        - quantity: Quantity to trade
 
-        Returns:
-            OrderValidationResult with validation status
+        **Returns:**
+        - OrderValidationResult with validation status
         """
         try:
             # Basic validation
@@ -326,13 +415,13 @@ class OrderManager:
         """
         Place a market order.
 
-        Args:
-            symbol: Trading symbol
-            trade_type: BUY or SELL
-            quantity: Quantity to trade
+        **Args:**
+        - symbol: Trading symbol
+        - trade_type: BUY or SELL
+        - quantity: Quantity to trade
 
-        Returns:
-            Order ID if successful, None if failed
+        **Returns:**
+        - Order ID if successful, None if failed
         """
         # Validate order
         validation = self.validate_order(symbol, trade_type, quantity)
