@@ -512,7 +512,7 @@ class OrderManager:
             execution_price = current_position.current_price
         else:
             # Fallback price for new symbols
-            execution_price = Decimal("50000")  # Mock price
+            execution_price = Decimal("100000")  # Mock price
 
         self._process_order_fill(
             order.order_id,

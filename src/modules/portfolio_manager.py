@@ -493,6 +493,9 @@ class PortfolioManager:
             timestamp = kline_data.kline.close_time
 
             self.update_price(symbol, close_price, timestamp)
+            self.logger.info(
+                "Updated price", symbol=symbol, price=close_price, timestamp=timestamp
+            )
 
         except Exception as e:
             self.logger.error(f"Failed to handle kline data: {e}")

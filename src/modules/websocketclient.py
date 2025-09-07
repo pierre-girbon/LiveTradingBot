@@ -350,6 +350,12 @@ class WebSocketClient:
             if await self.send_json(message):
                 subscription = Subscription(id, params, SubscriptionStatus.PENDING)
                 self.subscriptions[id] = subscription
+                self.logger.info(
+                    "Request sent",
+                    request_type=request_type.value,
+                    id=id,
+                    params=params,
+                )
                 return SendSubscriptionResult(True, "Subscription message sent")
             else:
                 self.logger.error("Failed to send message")
@@ -412,6 +418,12 @@ class WebSocketClient:
                 subscription = self.subscriptions.get(data["id"])
                 if subscription:
                     subscription.status = SubscriptionStatus.ACTIVE
+                    self.logger.info(
+                        "Processed server response",
+                        id=subscription.id,
+                        status=subscription.status.value,
+                        subscriptions=subscription.subscriptions,
+                    )
                 else:
                     self.logger.warning("Subscription not in subscription dict")
         if self.on_response:
