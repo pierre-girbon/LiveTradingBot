@@ -155,7 +155,7 @@ class KlineInfo(BaseModel):
         "open_price", "close_price", "high_price", "low_price", "volume", "quote_volume"
     )
     def validate_positive_numbers(cls, v):
-        if v <= 0:
+        if v < 0:
             raise ValueError("Price and volume values must be positive")
         return v
 
