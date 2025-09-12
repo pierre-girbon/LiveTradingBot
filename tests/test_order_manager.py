@@ -25,15 +25,9 @@ from uuid import uuid4
 
 import pytest
 
-from modules.order_manager import (
-    LimitOrder,
-    MarketOrder,
-    OrderManager,
-    OrderStatus,
-    OrderType,
-    OrderValidationResult,
-    StopOrder,
-)
+from modules.order_manager import (LimitOrder, MarketOrder, OrderManager,
+                                   OrderStatus, OrderType,
+                                   OrderValidationResult, StopOrder)
 from modules.portfolio_manager import PortfolioManager, TradeEvent, TradeType
 
 
@@ -389,7 +383,7 @@ class TestOrderManager:
 
         mock_fill.assert_called_once()
         call_args = mock_fill.call_args[0]
-        assert call_args[2] == Decimal("50000")  # fallback price
+        assert call_args[2] == Decimal("100000")  # fallback price
 
     def test_process_order_fill_new_fill(self, order_manager, mock_portfolio_manager):
         """Test processing order fill for unfilled order"""

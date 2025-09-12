@@ -212,7 +212,8 @@ class PortfolioManager:
 
     # TODO: ? Provide database engine and session from a external module
     def __init__(
-        self, db_url: str = os.environ.get("DB_PATH", "sqlite:///portfolio.db")
+        self,
+        db_url: Optional[str] = None,
     ):
         """Portfolio init
         - Load logger
@@ -222,7 +223,9 @@ class PortfolioManager:
         self.logger = get_logger(__name__)
 
         # Database setup
-        self.engine = create_engine(db_url)
+        self.engine = create_engine(
+            db_url if db_url else os.environ.get("DB_URL", "sqlite:///portfolio.db")
+        )
         """Database Engine"""
         Base.metadata.create_all(self.engine)
         Session = sessionmaker(bind=self.engine)

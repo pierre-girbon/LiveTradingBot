@@ -10,10 +10,12 @@ structlog
 
 # Config
 python-dotenv
+PyYAML
 
 # Testing
 pytest
 pytest-asyncio
+pytest-mock
 
 # Documentation
 pdoc

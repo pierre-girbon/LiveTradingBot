@@ -1,0 +1,64 @@
+# strategies_config.yaml
+# Configuration file for the Strategy Engine
+# Place this in your project root directory
+
+strategies:
+  # Moving Average Crossover for Bitcoin
+  - name: "ma_btc_short"
+    class: "MovingAverageCrossover"
+    module_path: "strategies/moving_average.py"
+    universe: ["BTCUSDT"]
+    parameters:
+      short_window: 5
+      long_window: 15
+      position_size: 0.1
+
+#   # Moving Average Crossover for Ethereum with different parameters
+#   - name: "ma_eth_medium"
+#     class: "MovingAverageCrossover"
+#     module_path: "strategies/moving_average.py"
+#     universe: ["ETHUSDT"]
+#     parameters:
+#       short_window: 10
+#       long_window: 25
+#       position_size: 1.0
+#
+#   # Momentum strategy watching multiple coins
+#   - name: "momentum_multi_crypto"
+#     class: "MomentumStrategy"
+#     module_path: "strategies/moving_average.py"  # Same file contains multiple strategies
+#     universe: ["BTCUSDT", "ETHUSDT", "ADAUSDT"]
+#     parameters:
+#       lookback_period: 14
+#       threshold: 0.04  # 4% momentum threshold
+#       position_size: 0.5
+#
+#   # Mean reversion strategy for altcoins
+#   - name: "mean_reversion_alts"
+#     class: "MeanReversionStrategy"
+#     module_path: "strategies/moving_average.py"
+#     universe: ["ADAUSDT", "LINKUSDT", "DOTUSDT"]
+#     parameters:
+#       ma_period: 20
+#       deviation_threshold: 2.0  # 2 standard deviations
+#       position_size: 10.0
+#
+#   # Conservative long-term MA crossover
+#   - name: "ma_btc_long_term"
+#     class: "MovingAverageCrossover"
+#     module_path: "strategies/moving_average.py"
+#     universe: ["BTCUSDT"]
+#     parameters:
+#       short_window: 20
+#       long_window: 50
+#       position_size: 0.05
+#
+# # Optional: Global strategy engine settings
+# settings:
+#   max_history_per_symbol: 200  # Maximum price history to keep in memory
+#   signal_cooldown_seconds: 30  # Minimum time between signals from same strategy
+#   enable_signal_logging: true
+#   risk_management:
+#     max_portfolio_risk: 0.1  # Maximum 10% of portfolio at risk
+#     max_position_size_pct: 0.05  # Maximum 5% position size per trade
+#     enable_stop_losses: false  # We'll implement this later
