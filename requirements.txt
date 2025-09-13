@@ -19,3 +19,7 @@ pytest-mock
 
 # Documentation
 pdoc
+
+# Data Processing
+TA-Lib
+numpy
