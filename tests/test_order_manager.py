@@ -20,14 +20,20 @@ import os
 import tempfile
 from datetime import datetime, timezone
 from decimal import Decimal
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 from uuid import uuid4
 
 import pytest
 
-from modules.order_manager import (LimitOrder, MarketOrder, OrderManager,
-                                   OrderStatus, OrderType,
-                                   OrderValidationResult, StopOrder)
+from modules.order_manager import (
+    LimitOrder,
+    MarketOrder,
+    OrderManager,
+    OrderStatus,
+    OrderType,
+    OrderValidationResult,
+    StopOrder,
+)
 from modules.portfolio_manager import PortfolioManager, TradeEvent, TradeType
 
 
@@ -62,6 +68,7 @@ class TestOrderTypes:
         return {
             "order_id": str(uuid4()),
             "symbol": "BTCUSDT",
+            "strategy_id": "test_strategy",
             "trade_type": TradeType.BUY,
             "quantity_ordered": Decimal("10"),
             "order_status": OrderStatus.PENDING,
@@ -169,7 +176,7 @@ class TestOrderManager:
 
     def test_calculate_locked_quantity_empty(self, order_manager):
         """Test locked quantity calculation with no orders"""
-        locked = order_manager._calculate_locked_quantity("BTCUSDT")
+        locked = order_manager._calculate_locked_quantity("BTCUSDT", "test_strategy")
         assert locked == Decimal("0")
 
     def test_calculate_locked_quantity_with_orders(self, order_manager):
@@ -178,6 +185,7 @@ class TestOrderManager:
         order1 = MarketOrder(
             order_id="order1",
             symbol="BTCUSDT",
+            strategy_id="test_strategy",
             trade_type=TradeType.SELL,
             quantity_ordered=Decimal("5"),
             order_status=OrderStatus.PENDING,
@@ -187,6 +195,7 @@ class TestOrderManager:
         order2 = LimitOrder(
             order_id="order2",
             symbol="BTCUSDT",
+            strategy_id="test_strategy",
             trade_type=TradeType.SELL,
             quantity_ordered=Decimal("3"),
             order_status=OrderStatus.PARTIAL,
@@ -198,6 +207,7 @@ class TestOrderManager:
         order3 = MarketOrder(
             order_id="order3",
             symbol="BTCUSDT",
+            strategy_id="test_strategy",
             trade_type=TradeType.BUY,  # Buy order shouldn't count
             quantity_ordered=Decimal("2"),
             order_status=OrderStatus.PENDING,
@@ -206,28 +216,36 @@ class TestOrderManager:
 
         # Add orders to manager
         order_manager.orders = {"order1": order1, "order2": order2, "order3": order3}
-        order_manager.orders_by_symbol = {"BTCUSDT": ["order1", "order2", "order3"]}
+        order_manager.orders_by_symbol = {
+            ("BTCUSDT", "test_strategy"): ["order1", "order2", "order3"]
+        }
 
-        locked = order_manager._calculate_locked_quantity("BTCUSDT")
+        locked = order_manager._calculate_locked_quantity("BTCUSDT", "test_strategy")
         # Should be 5 (order1) + 2 (order2 remaining) = 7
         # order3 is BUY so doesn't count
         assert locked == Decimal("7")
 
     def test_validate_order_positive_quantity(self, order_manager):
         """Test order validation with positive quantity"""
-        result = order_manager.validate_order("BTCUSDT", TradeType.BUY, Decimal("5"))
+        result = order_manager.validate_order(
+            "BTCUSDT", TradeType.BUY, Decimal("5"), "test_strategy"
+        )
         assert result.is_valid is True
         assert result.error_message is None
 
     def test_validate_order_zero_quantity(self, order_manager):
         """Test order validation with zero quantity"""
-        result = order_manager.validate_order("BTCUSDT", TradeType.BUY, Decimal("0"))
+        result = order_manager.validate_order(
+            "BTCUSDT", TradeType.BUY, Decimal("0"), "test_strategy"
+        )
         assert result.is_valid is False
         assert "Quantity must be positive" in result.error_message
 
     def test_validate_order_negative_quantity(self, order_manager):
         """Test order validation with negative quantity"""
-        result = order_manager.validate_order("BTCUSDT", TradeType.BUY, Decimal("-5"))
+        result = order_manager.validate_order(
+            "BTCUSDT", TradeType.BUY, Decimal("-5"), "test_strategy"
+        )
         assert result.is_valid is False
         assert "Quantity must be positive" in result.error_message
 
@@ -237,7 +255,9 @@ class TestOrderManager:
         """Test sell order validation with sufficient balance"""
         mock_portfolio_manager.calculate_available_balance.return_value = Decimal("10")
 
-        result = order_manager.validate_order("BTCUSDT", TradeType.SELL, Decimal("5"))
+        result = order_manager.validate_order(
+            "BTCUSDT", TradeType.SELL, Decimal("5"), "test_strategy"
+        )
         assert result.is_valid is True
         assert result.available_balance == Decimal("10")
 
@@ -247,17 +267,19 @@ class TestOrderManager:
         """Test sell order validation with insufficient balance"""
         mock_portfolio_manager.calculate_available_balance.return_value = Decimal("3")
 
-        result = order_manager.validate_order("BTCUSDT", TradeType.SELL, Decimal("5"))
+        result = order_manager.validate_order(
+            "BTCUSDT", TradeType.SELL, Decimal("5"), "test_strategy"
+        )
         assert result.is_valid is False
         assert "Insufficient balance" in result.error_message
         assert result.available_balance == Decimal("3")
 
-    def test_validate_order_buy_no_balance_check(
-        self, order_manager, mock_portfolio_manager
-    ):
+    def test_validate_order_buy_no_balance_check(self, order_manager):
         """Test buy order validation (no balance check needed)"""
         # For buy orders, we don't check balance in this simple implementation
-        result = order_manager.validate_order("BTCUSDT", TradeType.BUY, Decimal("100"))
+        result = order_manager.validate_order(
+            "BTCUSDT", TradeType.BUY, Decimal("100"), "test_strategy"
+        )
         assert result.is_valid is True
 
     def test_place_market_order_success(self, order_manager, mock_portfolio_manager):
@@ -268,7 +290,7 @@ class TestOrderManager:
             order_manager, "_simulate_market_order_execution"
         ) as mock_execution:
             order_id = order_manager.place_market_order(
-                "BTCUSDT", TradeType.SELL, Decimal("5")
+                "BTCUSDT", TradeType.SELL, Decimal("5"), "test_strategy"
             )
 
         assert order_id is not None
@@ -277,13 +299,14 @@ class TestOrderManager:
         order = order_manager.orders[order_id]
         assert isinstance(order, MarketOrder)
         assert order.symbol == "BTCUSDT"
+        assert order.strategy_id == "test_strategy"
         assert order.trade_type == TradeType.SELL
         assert order.quantity_ordered == Decimal("5")
         assert order.order_status == OrderStatus.PENDING
 
         # Check symbol index
-        assert "BTCUSDT" in order_manager.orders_by_symbol
-        assert order_id in order_manager.orders_by_symbol["BTCUSDT"]
+        assert ("BTCUSDT", "test_strategy") in order_manager.orders_by_symbol
+        assert order_id in order_manager.orders_by_symbol[("BTCUSDT", "test_strategy")]
 
         # Verify execution was called
         mock_execution.assert_called_once()
@@ -295,7 +318,7 @@ class TestOrderManager:
         mock_portfolio_manager.calculate_available_balance.return_value = Decimal("2")
 
         order_id = order_manager.place_market_order(
-            "BTCUSDT", TradeType.SELL, Decimal("5")
+            "BTCUSDT", TradeType.SELL, Decimal("5"), "test_strategy"
         )
 
         assert order_id is None
@@ -306,7 +329,7 @@ class TestOrderManager:
         mock_portfolio_manager.calculate_available_balance.return_value = Decimal("10")
 
         order_id = order_manager.place_limit_order(
-            "BTCUSDT", TradeType.SELL, Decimal("5"), Decimal("55000")
+            "BTCUSDT", TradeType.SELL, Decimal("5"), Decimal("55000"), "test_strategy"
         )
 
         assert order_id is not None
@@ -327,7 +350,7 @@ class TestOrderManager:
         mock_portfolio_manager.calculate_available_balance.return_value = Decimal("2")
 
         order_id = order_manager.place_limit_order(
-            "BTCUSDT", TradeType.SELL, Decimal("5"), Decimal("55000")
+            "BTCUSDT", TradeType.SELL, Decimal("5"), Decimal("55000"), "test_strategy"
         )
 
         assert order_id is None
@@ -344,6 +367,7 @@ class TestOrderManager:
         order = MarketOrder(
             order_id="test_order",
             symbol="BTCUSDT",
+            strategy_id="test_strategy",
             trade_type=TradeType.BUY,
             quantity_ordered=Decimal("2"),
             order_status=OrderStatus.PENDING,
@@ -370,6 +394,7 @@ class TestOrderManager:
         order = MarketOrder(
             order_id="test_order",
             symbol="NEWCOIN",
+            strategy_id="test_strategy",
             trade_type=TradeType.BUY,
             quantity_ordered=Decimal("2"),
             order_status=OrderStatus.PENDING,
@@ -390,6 +415,7 @@ class TestOrderManager:
         order = MarketOrder(
             order_id="test_order",
             symbol="BTCUSDT",
+            strategy_id="test_strategy",
             trade_type=TradeType.BUY,
             quantity_ordered=Decimal("10"),
             order_status=OrderStatus.PENDING,
@@ -426,6 +452,7 @@ class TestOrderManager:
         order = MarketOrder(
             order_id="test_order",
             symbol="BTCUSDT",
+            strategy_id="test_strategy",
             trade_type=TradeType.SELL,
             quantity_ordered=Decimal("5"),
             order_status=OrderStatus.PENDING,
@@ -452,6 +479,7 @@ class TestOrderManager:
         order = MarketOrder(
             order_id="test_order",
             symbol="BTCUSDT",
+            strategy_id="test_strategy",
             trade_type=TradeType.BUY,
             quantity_ordered=Decimal("10"),
             order_status=OrderStatus.PENDING,
@@ -496,6 +524,7 @@ class TestOrderManager:
         order = LimitOrder(
             order_id="test_order",
             symbol="BTCUSDT",
+            strategy_id="test_strategy",
             trade_type=TradeType.BUY,
             quantity_ordered=Decimal("5"),
             order_status=OrderStatus.PENDING,
@@ -520,6 +549,7 @@ class TestOrderManager:
         order = MarketOrder(
             order_id="test_order",
             symbol="BTCUSDT",
+            strategy_id="test_strategy",
             trade_type=TradeType.BUY,
             quantity_ordered=Decimal("5"),
             order_status=OrderStatus.COMPLETED,  # Can't cancel completed order
@@ -537,6 +567,7 @@ class TestOrderManager:
         order = MarketOrder(
             order_id="test_order",
             symbol="BTCUSDT",
+            strategy_id="test_strategy",
             trade_type=TradeType.BUY,
             quantity_ordered=Decimal("5"),
             order_status=OrderStatus.PENDING,
@@ -556,6 +587,7 @@ class TestOrderManager:
         order1 = MarketOrder(
             order_id="order1",
             symbol="BTCUSDT",
+            strategy_id="test_strategy",
             trade_type=TradeType.BUY,
             quantity_ordered=Decimal("5"),
             order_status=OrderStatus.PENDING,
@@ -565,6 +597,7 @@ class TestOrderManager:
         order2 = LimitOrder(
             order_id="order2",
             symbol="BTCUSDT",
+            strategy_id="test_strategy",
             trade_type=TradeType.SELL,
             quantity_ordered=Decimal("3"),
             order_status=OrderStatus.PENDING,
@@ -575,6 +608,7 @@ class TestOrderManager:
         order3 = MarketOrder(
             order_id="order3",
             symbol="ETHUSDT",
+            strategy_id="test_strategy",
             trade_type=TradeType.BUY,
             quantity_ordered=Decimal("10"),
             order_status=OrderStatus.PENDING,
@@ -583,21 +617,23 @@ class TestOrderManager:
 
         order_manager.orders = {"order1": order1, "order2": order2, "order3": order3}
         order_manager.orders_by_symbol = {
-            "BTCUSDT": ["order1", "order2"],
-            "ETHUSDT": ["order3"],
+            ("BTCUSDT", "test_strategy"): ["order1", "order2"],
+            ("ETHUSDT", "test_strategy"): ["order3"],
         }
 
-        btc_orders = order_manager.get_orders_by_symbol("BTCUSDT")
+        btc_orders = order_manager.get_orders_by_symbol("BTCUSDT", "test_strategy")
         assert len(btc_orders) == 2
         assert order1 in btc_orders
         assert order2 in btc_orders
 
-        eth_orders = order_manager.get_orders_by_symbol("ETHUSDT")
+        eth_orders = order_manager.get_orders_by_symbol("ETHUSDT", "test_strategy")
         assert len(eth_orders) == 1
         assert order3 in eth_orders
 
         # Test non-existent symbol
-        empty_orders = order_manager.get_orders_by_symbol("NONEXISTENT")
+        empty_orders = order_manager.get_orders_by_symbol(
+            "NONEXISTENT", "test_strategy"
+        )
         assert len(empty_orders) == 0
 
     def test_get_active_orders(self, order_manager):
@@ -605,6 +641,7 @@ class TestOrderManager:
         pending_order = MarketOrder(
             order_id="pending",
             symbol="BTCUSDT",
+            strategy_id="test_strategy",
             trade_type=TradeType.BUY,
             quantity_ordered=Decimal("5"),
             order_status=OrderStatus.PENDING,
@@ -614,6 +651,7 @@ class TestOrderManager:
         partial_order = LimitOrder(
             order_id="partial",
             symbol="ETHUSDT",
+            strategy_id="test_strategy",
             trade_type=TradeType.SELL,
             quantity_ordered=Decimal("10"),
             order_status=OrderStatus.PARTIAL,
@@ -624,6 +662,7 @@ class TestOrderManager:
         completed_order = MarketOrder(
             order_id="completed",
             symbol="ADAUSDT",
+            strategy_id="test_strategy",
             trade_type=TradeType.BUY,
             quantity_ordered=Decimal("100"),
             order_status=OrderStatus.COMPLETED,
@@ -633,6 +672,7 @@ class TestOrderManager:
         canceled_order = LimitOrder(
             order_id="canceled",
             symbol="DOTUSDT",
+            strategy_id="test_strategy",
             trade_type=TradeType.SELL,
             quantity_ordered=Decimal("50"),
             order_status=OrderStatus.CANCELED,
@@ -707,7 +747,7 @@ class TestOrderManager:
 
         with patch.object(order_manager.logger, "error") as mock_logger:
             result = order_manager.validate_order(
-                "BTCUSDT", TradeType.SELL, Decimal("5")
+                "BTCUSDT", TradeType.SELL, Decimal("5"), "test_strategy"
             )
 
         assert result.is_valid is False
@@ -781,6 +821,7 @@ class TestIntegration:
         # First, create initial position
         initial_trade = TradeEvent(
             symbol="BTCUSDT",
+            strategy_id="test_strategy",
             trade_type=TradeType.BUY,
             quantity=Decimal("10"),
             price=Decimal("50000"),
@@ -795,7 +836,7 @@ class TestIntegration:
 
         # Place market sell order
         order_id = order_manager_integrated.place_market_order(
-            "BTCUSDT", TradeType.SELL, Decimal("3")
+            "BTCUSDT", TradeType.SELL, Decimal("3"), "test_strategy"
         )
 
         assert order_id is not None
@@ -808,7 +849,7 @@ class TestIntegration:
         assert order.quantity_filled == Decimal("3")
 
         # Check portfolio was updated
-        position = portfolio_manager.get_position("BTCUSDT")
+        position = portfolio_manager.get_position("BTCUSDT", "test_strategy")
         assert position.quantity == Decimal("7")  # 10 - 3 = 7
 
     def test_insufficient_balance_integration(
@@ -818,6 +859,7 @@ class TestIntegration:
         # Create small position
         trade = TradeEvent(
             symbol="BTCUSDT",
+            strategy_id="test_strategy",
             trade_type=TradeType.BUY,
             quantity=Decimal("2"),
             price=Decimal("50000"),
@@ -827,13 +869,13 @@ class TestIntegration:
 
         # Try to sell more than we have
         order_id = order_manager_integrated.place_market_order(
-            "BTCUSDT", TradeType.SELL, Decimal("5")
+            "BTCUSDT", TradeType.SELL, Decimal("5"), "test_strategy"
         )
 
         assert order_id is None  # Should be rejected
 
         # Position should be unchanged
-        position = portfolio_manager.get_position("BTCUSDT")
+        position = portfolio_manager.get_position("BTCUSDT", "test_strategy")
         assert position.quantity == Decimal("2")
 
 

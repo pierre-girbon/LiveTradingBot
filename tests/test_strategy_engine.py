@@ -19,6 +19,7 @@ Dependencies:
 """
 
 import os
+
 # Import the modules we're testing
 # Note: Adjust imports based on your actual file structure
 import sys
@@ -34,10 +35,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(__name__), "src/"))
 
 from modules.dataprocessor import KlineData, KlineInfo
 from modules.order_manager import OrderManager
-from modules.portfolio_manager import TradeEvent, TradeType
-from modules.strategy_engine import (BaseStrategy, Signal, SignalType,
-                                     StrategyData, StrategyEngine,
-                                     StrategyPortfolioManager)
+from modules.portfolio_manager import PortfolioManager, TradeEvent, TradeType
+from modules.strategy_engine import (
+    BaseStrategy,
+    Signal,
+    SignalType,
+    StrategyData,
+    StrategyEngine,
+)
 
 
 # Test Fixtures
@@ -55,13 +60,12 @@ def sample_strategy_data():
 @pytest.fixture
 def mock_portfolio_manager():
     """Create a mock portfolio manager."""
-    mock_pm = Mock(spec=StrategyPortfolioManager)
-    mock_pm.get_strategy_quantity.return_value = Decimal("0")
-    mock_pm.get_strategy_position.return_value = None
-    mock_pm.get_strategy_positions.return_value = {}
-    mock_pm.process_strategy_trade.return_value = True
+    mock_pm = Mock(spec=PortfolioManager)
+    mock_pm.get_position_quantity.return_value = Decimal("0")
+    mock_pm.get_position.return_value = None
+    mock_pm.get_all_positions.return_value = {}
+    mock_pm.process_trade.return_value = True
     mock_pm.update_price.return_value = True
-    mock_pm.update_strategy_price.return_value = None
     return mock_pm
 
 
@@ -221,89 +225,6 @@ class TestBaseStrategy:
         assert signal is None
 
 
-class TestStrategyPortfolioManager:
-    """Test the extended StrategyPortfolioManager."""
-
-    def test_strategy_position_tracking(self):
-        """Test strategy-specific position tracking."""
-        # Use in-memory database for testing
-        portfolio = StrategyPortfolioManager("sqlite:///:memory:")
-
-        # Create test trade
-        trade = TradeEvent(
-            symbol="BTCUSDT",
-            trade_type=TradeType.BUY,
-            quantity=Decimal("1.0"),
-            price=Decimal("50000"),
-            timestamp=datetime.now(tz=timezone.utc),
-        )
-
-        # Process trade for strategy
-        result = portfolio.process_strategy_trade("strategy_1", trade)
-        assert result is True
-
-        # Check strategy position
-        position = portfolio.get_strategy_position("strategy_1", "BTCUSDT")
-        assert position is not None
-        assert position.quantity == Decimal("1.0")
-        assert position.avg_price == Decimal("50000")
-
-    def test_multiple_strategy_isolation(self):
-        """Test that strategies have isolated positions."""
-        portfolio = StrategyPortfolioManager("sqlite:///:memory:")
-
-        # Create trades for different strategies
-        trade1 = TradeEvent(
-            symbol="BTCUSDT",
-            trade_type=TradeType.BUY,
-            quantity=Decimal("1.0"),
-            price=Decimal("50000"),
-            timestamp=datetime.now(tz=timezone.utc),
-        )
-
-        trade2 = TradeEvent(
-            symbol="BTCUSDT",
-            trade_type=TradeType.BUY,
-            quantity=Decimal("2.0"),
-            price=Decimal("51000"),
-            timestamp=datetime.now(tz=timezone.utc),
-        )
-
-        # Process trades for different strategies
-        portfolio.process_strategy_trade("strategy_1", trade1)
-        portfolio.process_strategy_trade("strategy_2", trade2)
-
-        # Check positions are isolated
-        pos1 = portfolio.get_strategy_position("strategy_1", "BTCUSDT")
-        pos2 = portfolio.get_strategy_position("strategy_2", "BTCUSDT")
-
-        assert pos1.quantity == Decimal("1.0")
-        assert pos2.quantity == Decimal("2.0")
-        assert pos1.avg_price == Decimal("50000")
-        assert pos2.avg_price == Decimal("51000")
-
-    def test_strategy_quantity_retrieval(self):
-        """Test getting strategy quantity."""
-        portfolio = StrategyPortfolioManager("sqlite:///:memory:")
-
-        # Initially should be 0
-        qty = portfolio.get_strategy_quantity("strategy_1", "BTCUSDT")
-        assert qty == Decimal("0")
-
-        # After trade
-        trade = TradeEvent(
-            symbol="BTCUSDT",
-            trade_type=TradeType.BUY,
-            quantity=Decimal("1.5"),
-            price=Decimal("50000"),
-            timestamp=datetime.now(tz=timezone.utc),
-        )
-        portfolio.process_strategy_trade("strategy_1", trade)
-
-        qty = portfolio.get_strategy_quantity("strategy_1", "BTCUSDT")
-        assert qty == Decimal("1.5")
-
-
 class TestStrategyEngine:
     """Test the main StrategyEngine class."""
 
@@ -364,7 +285,7 @@ class TestStrategyEngine:
         engine.register_strategy(test_strategy, ["BTCUSDT"], {"test_param": "value"})
 
         # Mock portfolio manager to return current position
-        mock_portfolio_manager.get_strategy_quantity.return_value = Decimal("0")
+        mock_portfolio_manager.get_position.return_value = Decimal("0")
 
         # Update price (should trigger signal because price > 50000)
         signals = engine.update_price(
@@ -423,7 +344,7 @@ class TestStrategyEngine:
         )
 
         # Verify strategy trade was processed
-        mock_portfolio_manager.process_strategy_trade.assert_called_once()
+        mock_portfolio_manager.process_trade.assert_called_once()
 
     def test_required_subscriptions(
         self, mock_portfolio_manager, mock_order_manager, test_strategy
@@ -460,7 +381,7 @@ class TestStrategyEngine:
         mock_kline_data.kline = mock_kline_info
 
         # Mock portfolio manager methods
-        mock_portfolio_manager.get_strategy_quantity.return_value = Decimal("0")
+        mock_portfolio_manager.get_position.return_value = Decimal("0")
         mock_order_manager.place_market_order.return_value = "order_123"
         mock_position = Mock()
         mock_position.current_price = Decimal("50100")
@@ -470,7 +391,7 @@ class TestStrategyEngine:
         engine.handle_kline_data(mock_kline_data)
 
         # Verify portfolio price was updated
-        mock_portfolio_manager.update_price.assert_called_once()
+        mock_portfolio_manager.update_price.assert_called()
 
         # Verify order was placed (since our test strategy should trigger on price > 50000)
         mock_order_manager.place_market_order.assert_called_once()
@@ -525,7 +446,7 @@ class TestStrategyEngine:
         mock_position.current_price = Decimal("50100")
         mock_position.side.value = "LONG"
 
-        mock_portfolio_manager.get_strategy_positions.return_value = {
+        mock_portfolio_manager.get_all_positions.return_value = {
             "BTCUSDT": mock_position
         }
 
@@ -587,7 +508,7 @@ class TestStrategyEngineIntegration:
         engine.register_strategy(test_strategy, universe, parameters)
 
         # Setup: Mock dependencies
-        mock_portfolio_manager.get_strategy_quantity.return_value = Decimal("0")
+        mock_portfolio_manager.get_position.return_value = Decimal("0")
         mock_order_manager.place_market_order.return_value = "order_123"
         mock_position = Mock()
         mock_position.current_price = Decimal("50100")
@@ -610,7 +531,7 @@ class TestStrategyEngineIntegration:
         mock_order_manager.place_market_order.assert_called_once_with(
             "BTCUSDT", TradeType.BUY, Decimal("1.0")
         )
-        mock_portfolio_manager.process_strategy_trade.assert_called_once()
+        mock_portfolio_manager.process_trade.assert_called_once()
 
     def test_multiple_strategies_same_symbol(
         self, mock_portfolio_manager, mock_order_manager, test_strategy
@@ -649,7 +570,7 @@ class TestStrategyEngineIntegration:
         engine.register_strategy(strategy2, ["BTCUSDT"], {"test_param": "value"})
 
         # Setup mocks
-        mock_portfolio_manager.get_strategy_quantity.return_value = Decimal("0")
+        mock_portfolio_manager.get_position.return_value = Decimal("0")
 
         # Update price - should trigger signals from both strategies
         signals = engine.update_price(

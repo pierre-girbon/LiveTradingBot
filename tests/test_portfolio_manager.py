@@ -39,6 +39,7 @@ class TestTradeEvent:
         timestamp = datetime.now(tz=timezone.utc)
         trade = TradeEvent(
             symbol="BTCUSDT",
+            strategy_id="test_strategy",
             trade_type=TradeType.BUY,
             quantity=Decimal("10"),
             price=Decimal("50000"),
@@ -47,6 +48,7 @@ class TestTradeEvent:
         )
 
         assert trade.symbol == "BTCUSDT"
+        assert trade.strategy_id == "test_strategy"
         assert trade.trade_type == TradeType.BUY
         assert trade.quantity == Decimal("10")
         assert trade.price == Decimal("50000")
@@ -62,6 +64,7 @@ class TestPositionInfo:
         """Create a sample long position"""
         return PositionInfo(
             symbol="BTCUSDT",
+            strategy_id="test_strategy",
             quantity=Decimal("10"),
             avg_price=Decimal("50000"),
             current_price=Decimal("55000"),
@@ -75,6 +78,7 @@ class TestPositionInfo:
         """Create a sample short position"""
         return PositionInfo(
             symbol="ETHUSDT",
+            strategy_id="test_strategy",
             quantity=Decimal("-5"),
             avg_price=Decimal("3000"),
             current_price=Decimal("2800"),
@@ -139,6 +143,7 @@ class TestPortfolioManager:
         """Test P&L calculation for long position"""
         position = PositionInfo(
             symbol="BTCUSDT",
+            strategy_id="test_strategy",
             quantity=Decimal("10"),
             avg_price=Decimal("50000"),
             current_price=Decimal("55000"),
@@ -155,6 +160,7 @@ class TestPortfolioManager:
         """Test P&L calculation for short position"""
         position = PositionInfo(
             symbol="ETHUSDT",
+            strategy_id="test_strategy",
             quantity=Decimal("-5"),
             avg_price=Decimal("3000"),
             current_price=Decimal("2800"),
@@ -171,6 +177,7 @@ class TestPortfolioManager:
         """Test P&L calculation for flat position"""
         position = PositionInfo(
             symbol="ADAUSDT",
+            strategy_id="test_strategy",
             quantity=Decimal("0"),
             avg_price=Decimal("1"),
             current_price=Decimal("1.5"),
@@ -186,6 +193,7 @@ class TestPortfolioManager:
         """Test processing a trade for a new position (buy)"""
         trade = TradeEvent(
             symbol="BTCUSDT",
+            strategy_id="test_strategy",
             trade_type=TradeType.BUY,
             quantity=Decimal("10"),
             price=Decimal("50000"),
@@ -195,9 +203,9 @@ class TestPortfolioManager:
         result = portfolio_manager.process_trade(trade)
 
         assert result is True
-        assert "BTCUSDT" in portfolio_manager.positions
+        assert ("BTCUSDT", "test_strategy") in portfolio_manager.positions
 
-        position = portfolio_manager.positions["BTCUSDT"]
+        position = portfolio_manager.positions[("BTCUSDT", "test_strategy")]
         assert position.quantity == Decimal("10")
         assert position.avg_price == Decimal("50000")
         assert position.side == PositionSide.LONG
@@ -207,6 +215,7 @@ class TestPortfolioManager:
         """Test processing a trade for a new position (sell/short)"""
         trade = TradeEvent(
             symbol="ETHUSDT",
+            strategy_id="test_strategy",
             trade_type=TradeType.SELL,
             quantity=Decimal("5"),
             price=Decimal("3000"),
@@ -216,9 +225,9 @@ class TestPortfolioManager:
         result = portfolio_manager.process_trade(trade)
 
         assert result is True
-        assert "ETHUSDT" in portfolio_manager.positions
+        assert ("ETHUSDT", "test_strategy") in portfolio_manager.positions
 
-        position = portfolio_manager.positions["ETHUSDT"]
+        position = portfolio_manager.positions[("ETHUSDT", "test_strategy")]
         assert position.quantity == Decimal("-5")
         assert position.avg_price == Decimal("3000")
         assert position.side == PositionSide.SHORT
@@ -228,6 +237,7 @@ class TestPortfolioManager:
         # First trade
         trade1 = TradeEvent(
             symbol="BTCUSDT",
+            strategy_id="test_strategy",
             trade_type=TradeType.BUY,
             quantity=Decimal("10"),
             price=Decimal("50000"),
@@ -238,6 +248,7 @@ class TestPortfolioManager:
         # Second trade - add to position
         trade2 = TradeEvent(
             symbol="BTCUSDT",
+            strategy_id="test_strategy",
             trade_type=TradeType.BUY,
             quantity=Decimal("5"),
             price=Decimal("60000"),
@@ -246,7 +257,7 @@ class TestPortfolioManager:
         result = portfolio_manager.process_trade(trade2)
 
         assert result is True
-        position = portfolio_manager.positions["BTCUSDT"]
+        position = portfolio_manager.positions[("BTCUSDT", "test_strategy")]
         assert position.quantity == Decimal("15")
 
         # Check weighted average price calculation
@@ -260,6 +271,7 @@ class TestPortfolioManager:
         # First trade - establish position
         trade1 = TradeEvent(
             symbol="BTCUSDT",
+            strategy_id="test_strategy",
             trade_type=TradeType.BUY,
             quantity=Decimal("10"),
             price=Decimal("50000"),
@@ -270,6 +282,7 @@ class TestPortfolioManager:
         # Second trade - reduce position
         trade2 = TradeEvent(
             symbol="BTCUSDT",
+            strategy_id="test_strategy",
             trade_type=TradeType.SELL,
             quantity=Decimal("3"),
             price=Decimal("55000"),
@@ -278,7 +291,7 @@ class TestPortfolioManager:
         result = portfolio_manager.process_trade(trade2)
 
         assert result is True
-        position = portfolio_manager.positions["BTCUSDT"]
+        position = portfolio_manager.positions[("BTCUSDT", "test_strategy")]
         assert position.quantity == Decimal("7")
         assert position.avg_price == Decimal(
             "50000"
@@ -290,6 +303,7 @@ class TestPortfolioManager:
         # First trade - establish position
         trade1 = TradeEvent(
             symbol="BTCUSDT",
+            strategy_id="test_strategy",
             trade_type=TradeType.BUY,
             quantity=Decimal("10"),
             price=Decimal("50000"),
@@ -300,6 +314,7 @@ class TestPortfolioManager:
         # Second trade - close position
         trade2 = TradeEvent(
             symbol="BTCUSDT",
+            strategy_id="test_strategy",
             trade_type=TradeType.SELL,
             quantity=Decimal("10"),
             price=Decimal("55000"),
@@ -308,7 +323,7 @@ class TestPortfolioManager:
         result = portfolio_manager.process_trade(trade2)
 
         assert result is True
-        position = portfolio_manager.positions["BTCUSDT"]
+        position = portfolio_manager.positions[("BTCUSDT", "test_strategy")]
         assert position.quantity == Decimal("0")
         assert position.side == PositionSide.FLAT
         assert position.unrealized_pnl == Decimal("0")
@@ -318,6 +333,7 @@ class TestPortfolioManager:
         # Create position first
         trade = TradeEvent(
             symbol="BTCUSDT",
+            strategy_id="test_strategy",
             trade_type=TradeType.BUY,
             quantity=Decimal("10"),
             price=Decimal("50000"),
@@ -332,7 +348,7 @@ class TestPortfolioManager:
         )
 
         assert result is True
-        position = portfolio_manager.positions["BTCUSDT"]
+        position = portfolio_manager.positions[("BTCUSDT", "test_strategy")]
         assert position.current_price == Decimal("55000")
         assert position.last_updated == new_timestamp
 
@@ -352,6 +368,7 @@ class TestPortfolioManager:
         # Create position
         trade = TradeEvent(
             symbol="BTCUSDT",
+            strategy_id="test_strategy",
             trade_type=TradeType.BUY,
             quantity=Decimal("10"),
             price=Decimal("50000"),
@@ -360,13 +377,13 @@ class TestPortfolioManager:
         portfolio_manager.process_trade(trade)
 
         # Get position
-        position = portfolio_manager.get_position("BTCUSDT")
+        position = portfolio_manager.get_position("BTCUSDT", "test_strategy")
         assert position is not None
         assert position.symbol == "BTCUSDT"
         assert position.quantity == Decimal("10")
 
         # Get non-existent position
-        non_existent = portfolio_manager.get_position("NONEXISTENT")
+        non_existent = portfolio_manager.get_position("NONEXISTENT", "test_strategy")
         assert non_existent is None
 
     def test_get_all_positions(self, portfolio_manager):
@@ -374,6 +391,7 @@ class TestPortfolioManager:
         # Create multiple positions
         trade1 = TradeEvent(
             symbol="BTCUSDT",
+            strategy_id="test_strategy",
             trade_type=TradeType.BUY,
             quantity=Decimal("10"),
             price=Decimal("50000"),
@@ -381,6 +399,7 @@ class TestPortfolioManager:
         )
         trade2 = TradeEvent(
             symbol="ETHUSDT",
+            strategy_id="test_strategy",
             trade_type=TradeType.SELL,
             quantity=Decimal("5"),
             price=Decimal("3000"),
@@ -392,14 +411,15 @@ class TestPortfolioManager:
 
         all_positions = portfolio_manager.get_all_positions()
         assert len(all_positions) == 2
-        assert "BTCUSDT" in all_positions
-        assert "ETHUSDT" in all_positions
+        assert "BTCUSDT_test_strategy" in all_positions
+        assert "ETHUSDT_test_strategy" in all_positions
 
     def test_get_portfolio_value(self, portfolio_manager):
         """Test calculating total portfolio value"""
         # Create positions with different P&Ls
         trade1 = TradeEvent(
             symbol="BTCUSDT",
+            strategy_id="test_strategy",
             trade_type=TradeType.BUY,
             quantity=Decimal("10"),
             price=Decimal("50000"),
@@ -407,6 +427,7 @@ class TestPortfolioManager:
         )
         trade2 = TradeEvent(
             symbol="ETHUSDT",
+            strategy_id="test_strategy",
             trade_type=TradeType.SELL,
             quantity=Decimal("5"),
             price=Decimal("3000"),
@@ -438,6 +459,7 @@ class TestPortfolioManager:
         # Create position
         trade = TradeEvent(
             symbol="BTCUSDT",
+            strategy_id="test_strategy",
             trade_type=TradeType.BUY,
             quantity=Decimal("10"),
             price=Decimal("50000"),
@@ -446,11 +468,11 @@ class TestPortfolioManager:
         portfolio_manager.process_trade(trade)
 
         # Test existing position
-        qty = portfolio_manager.get_position_quantity("BTCUSDT")
+        qty = portfolio_manager.get_position_quantity("BTCUSDT", "test_strategy")
         assert qty == Decimal("10")
 
         # Test non-existent position
-        qty = portfolio_manager.get_position_quantity("NONEXISTENT")
+        qty = portfolio_manager.get_position_quantity("NONEXISTENT", "test_strategy")
         assert qty == Decimal("0")
 
     def test_calculate_available_balance_long_position(self, portfolio_manager):
@@ -458,6 +480,7 @@ class TestPortfolioManager:
         # Create long position
         trade = TradeEvent(
             symbol="BTCUSDT",
+            strategy_id="test_strategy",
             trade_type=TradeType.BUY,
             quantity=Decimal("10"),
             price=Decimal("50000"),
@@ -466,18 +489,20 @@ class TestPortfolioManager:
         portfolio_manager.process_trade(trade)
 
         # Test with no locked quantity
-        available = portfolio_manager.calculate_available_balance("BTCUSDT")
+        available = portfolio_manager.calculate_available_balance(
+            "BTCUSDT", "test_strategy"
+        )
         assert available == Decimal("10")
 
         # Test with locked quantity
         available = portfolio_manager.calculate_available_balance(
-            "BTCUSDT", Decimal("3")
+            "BTCUSDT", "test_strategy", Decimal("3")
         )
         assert available == Decimal("7")
 
         # Test with locked quantity exceeding position
         available = portfolio_manager.calculate_available_balance(
-            "BTCUSDT", Decimal("15")
+            "BTCUSDT", "test_strategy", Decimal("15")
         )
         assert available == Decimal("0")
 
@@ -486,6 +511,7 @@ class TestPortfolioManager:
         # Create short position
         trade = TradeEvent(
             symbol="ETHUSDT",
+            strategy_id="test_strategy",
             trade_type=TradeType.SELL,
             quantity=Decimal("5"),
             price=Decimal("3000"),
@@ -494,12 +520,16 @@ class TestPortfolioManager:
         portfolio_manager.process_trade(trade)
 
         # Short positions should return 0 available balance
-        available = portfolio_manager.calculate_available_balance("ETHUSDT")
+        available = portfolio_manager.calculate_available_balance(
+            "ETHUSDT", "test_strategy"
+        )
         assert available == Decimal("0")
 
     def test_calculate_available_balance_no_position(self, portfolio_manager):
         """Test calculating available balance for non-existent position"""
-        available = portfolio_manager.calculate_available_balance("NONEXISTENT")
+        available = portfolio_manager.calculate_available_balance(
+            "NONEXISTENT", "test_strategy"
+        )
         assert available == Decimal("0")
 
     def test_handle_kline_data(self, portfolio_manager):
@@ -507,6 +537,7 @@ class TestPortfolioManager:
         # Create position first
         trade = TradeEvent(
             symbol="BTCUSDT",
+            strategy_id="test_strategy",
             trade_type=TradeType.BUY,
             quantity=Decimal("10"),
             price=Decimal("50000"),
@@ -524,7 +555,7 @@ class TestPortfolioManager:
         portfolio_manager.handle_kline_data(mock_kline_data)
 
         # Verify price was updated
-        position = portfolio_manager.positions["BTCUSDT"]
+        position = portfolio_manager.positions[("BTCUSDT", "test_strategy")]
         assert position.current_price == Decimal("55000")
 
     def test_handle_trade_data(self, portfolio_manager):
@@ -576,6 +607,7 @@ class TestPortfolioManager:
         # Test trade processing with database operations
         trade = TradeEvent(
             symbol="BTCUSDT",
+            strategy_id="test_strategy",
             trade_type=TradeType.BUY,
             quantity=Decimal("10"),
             price=Decimal("50000"),

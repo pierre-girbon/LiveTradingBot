@@ -7,13 +7,14 @@ import asyncio
 
 from modules.dataprocessor import DataProcessor
 from modules.order_manager import OrderManager
-from modules.strategy_engine import StrategyEngine, StrategyPortfolioManager
+from modules.portfolio_manager import PortfolioManager
+from modules.strategy_engine import StrategyEngine
 from modules.websocketclient import RequestType, WebSocketClient
 
 
 async def main():
     # Create extended portfolio manager that supports strategies
-    portfolio = StrategyPortfolioManager()
+    portfolio = PortfolioManager()
 
     # Create order manager
     order_manager = OrderManager(portfolio)

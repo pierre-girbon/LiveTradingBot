@@ -17,61 +17,6 @@ Integrates with PortfolioManager to ensure proper position tracking.
 
 ## Example usage
 ```python
-if __name__ == "__main__":
-    import logging
-
-    from portfolio_manager import PortfolioManager
-
-    logging.basicConfig(level=logging.INFO)
-
-    # Create portfolio manager and order manager
-    portfolio = PortfolioManager()
-    order_manager = OrderManager(portfolio)
-
-    # Example: Place some orders
-    print("=== Testing Order Management ===\n")
-
-    # First, let's add some initial position to portfolio for testing
-    initial_trade = TradeEvent(
-        symbol="BTCUSDT",
-        trade_type=TradeType.BUY,
-        quantity=Decimal("10"),
-        price=Decimal("50000"),
-        timestamp=datetime.now(tz=timezone.utc),
-    )
-    portfolio.process_trade(initial_trade)
-    portfolio.update_price("BTCUSDT", Decimal("52000"), datetime.now(tz=timezone.utc))
-
-    print(f"Initial position: {portfolio.get_position('BTCUSDT').quantity} BTC")
-
-    # Test market order
-    order_id_1 = order_manager.place_market_order(
-        "BTCUSDT", TradeType.SELL, Decimal("3")
-    )
-    print(f"Placed market order: {order_id_1}")
-
-    # Test limit order
-    order_id_2 = order_manager.place_limit_order(
-        "BTCUSDT", TradeType.SELL, Decimal("2"), Decimal("55000")
-    )
-    print(f"Placed limit order: {order_id_2}")
-
-    # Check positions after orders
-    position = portfolio.get_position("BTCUSDT")
-    print(f"\nFinal position: {position.quantity} BTC @ avg {position.avg_price}")
-    print(f"Unrealized P&L: {position.unrealized_pnl}")
-
-    # Show active orders
-    active_orders = order_manager.get_active_orders()
-    print(f"\nActive orders: {len(active_orders)}")
-    for order in active_orders:
-        print(
-            f"- {order.order_id}: {order.trade_type.value} {order.quantity_remaining} {order.symbol} @ {order.get_reference_price()}"
-        )
-
-    # Clean up
-    order_manager.close()
-    portfolio.close()
 ```
 """
 
@@ -110,6 +55,7 @@ class OrderRecord(Base):
     id = Column(Integer, primary_key=True)
     order_id = Column(String(50), unique=True, nullable=False)
     symbol = Column(String(20), nullable=False)
+    strategy_id = Column(String(50), nullable=False)  # REQUIRED - no nullable positions
     trade_type = Column(String(10), nullable=False)
     order_type = Column(String(10), nullable=False)
     quantity_ordered = Column(Float, nullable=False)
@@ -148,6 +94,7 @@ class BaseOrder(ABC):
 
     order_id: str
     symbol: str
+    strategy_id: str
     trade_type: TradeType
     quantity_ordered: Decimal
     order_status: OrderStatus
@@ -287,9 +234,9 @@ class OrderManager:
         - Key: UUID
         - Value: Order (Market, Limit or Stop)
         """
-        self.orders_by_symbol: Dict[str, List[str]] = {}
+        self.orders_by_symbol: Dict[(str, str), List[str]] = {}
         """Dictionary of orders by symbol
-        - Key: symbol
+        - Key: (symbol, strategy_id)
         - Value: List[Order.order_id]
         """
 
@@ -312,9 +259,11 @@ class OrderManager:
                 self.orders[order.order_id] = order
 
                 # Update orders_by_symbol index
-                if order.symbol not in self.orders_by_symbol:
-                    self.orders_by_symbol[order.symbol] = []
-                self.orders_by_symbol[order.symbol].append(order.order_id)
+                if (order.symbol, order.strategy_id) not in self.orders_by_symbol:
+                    self.orders_by_symbol[(order.symbol, order.strategy_id)] = []
+                self.orders_by_symbol[(order.symbol, order.strategy_id)].append(
+                    order.order_id
+                )
 
         self.logger.info(f"Loaded {len(self.orders)} orders from database")
 
@@ -324,6 +273,7 @@ class OrderManager:
             common_fields = {
                 "order_id": db_record.order_id,
                 "symbol": db_record.symbol,
+                "strategy_id": db_record.strategy_id,
                 "trade_type": TradeType(db_record.trade_type),
                 "quantity_ordered": Decimal(str(db_record.quantity_ordered)),
                 "order_status": OrderStatus(db_record.order_status),
@@ -349,11 +299,11 @@ class OrderManager:
             self.logger.error(f"Failed to convert DB record to order: {e}")
             return None
 
-    def _calculate_locked_quantity(self, symbol: str) -> Decimal:
+    def _calculate_locked_quantity(self, symbol: str, strategy_id: str) -> Decimal:
         """Calculate total quantity locked in pending orders for a symbol"""
         locked = Decimal("0")
 
-        order_ids = self.orders_by_symbol.get(symbol, [])
+        order_ids = self.orders_by_symbol.get((symbol, strategy_id), [])
         for order_id in order_ids:
             order = self.orders.get(order_id)
             if order and order.order_status in [
@@ -366,7 +316,7 @@ class OrderManager:
         return locked
 
     def validate_order(
-        self, symbol: str, trade_type: TradeType, quantity: Decimal
+        self, symbol: str, trade_type: TradeType, quantity: Decimal, strategy_id: str
     ) -> OrderValidationResult:
         """
         Validate if an order can be placed.
@@ -386,9 +336,9 @@ class OrderManager:
 
             # For sell orders, check if we have enough available balance
             if trade_type == TradeType.SELL:
-                locked_qty = self._calculate_locked_quantity(symbol)
+                locked_qty = self._calculate_locked_quantity(symbol, strategy_id)
                 available = self.portfolio_manager.calculate_available_balance(
-                    symbol, locked_qty
+                    symbol, strategy_id, locked_qty
                 )
 
                 if quantity > available:
@@ -410,7 +360,7 @@ class OrderManager:
             return OrderValidationResult(False, f"Validation error: {e}")
 
     def place_market_order(
-        self, symbol: str, trade_type: TradeType, quantity: Decimal
+        self, symbol: str, trade_type: TradeType, quantity: Decimal, strategy_id: str
     ) -> Optional[str]:
         """
         Place a market order.
@@ -424,7 +374,7 @@ class OrderManager:
         - Order ID if successful, None if failed
         """
         # Validate order
-        validation = self.validate_order(symbol, trade_type, quantity)
+        validation = self.validate_order(symbol, trade_type, quantity, strategy_id)
         if not validation.is_valid:
             self.logger.error(f"Order validation failed: {validation.error_message}")
             return None
@@ -434,6 +384,7 @@ class OrderManager:
         order = MarketOrder(
             order_id=order_id,
             symbol=symbol,
+            strategy_id=strategy_id,
             trade_type=trade_type,
             quantity_ordered=quantity,
             order_status=OrderStatus.PENDING,
@@ -442,9 +393,9 @@ class OrderManager:
 
         # Store order
         self.orders[order_id] = order
-        if symbol not in self.orders_by_symbol:
-            self.orders_by_symbol[symbol] = []
-        self.orders_by_symbol[symbol].append(order_id)
+        if (symbol, strategy_id) not in self.orders_by_symbol:
+            self.orders_by_symbol[(symbol, strategy_id)] = []
+        self.orders_by_symbol[(symbol, strategy_id)].append(order_id)
 
         # Save to database
         self._save_order_to_db(order)
@@ -456,6 +407,7 @@ class OrderManager:
         self.logger.info(
             f"Placed market order: {trade_type.value} {quantity} {symbol}",
             order_id=order_id,
+            strategy=strategy_id,
         )
 
         return order_id
@@ -466,9 +418,10 @@ class OrderManager:
         trade_type: TradeType,
         quantity: Decimal,
         limit_price: Decimal,
+        strategy_id: str,
     ) -> Optional[str]:
         """Place a limit order"""
-        validation = self.validate_order(symbol, trade_type, quantity)
+        validation = self.validate_order(symbol, trade_type, quantity, strategy_id)
         if not validation.is_valid:
             self.logger.error(f"Order validation failed: {validation.error_message}")
             return None
@@ -477,6 +430,7 @@ class OrderManager:
         order = LimitOrder(
             order_id=order_id,
             symbol=symbol,
+            strategy_id=strategy_id,
             trade_type=trade_type,
             quantity_ordered=quantity,
             limit_price=limit_price,
@@ -485,9 +439,9 @@ class OrderManager:
         )
 
         self.orders[order_id] = order
-        if symbol not in self.orders_by_symbol:
-            self.orders_by_symbol[symbol] = []
-        self.orders_by_symbol[symbol].append(order_id)
+        if (symbol, strategy_id) not in self.orders_by_symbol:
+            self.orders_by_symbol[(symbol, strategy_id)] = []
+        self.orders_by_symbol[(symbol, strategy_id)].append(order_id)
 
         self._save_order_to_db(order)
 
@@ -496,6 +450,7 @@ class OrderManager:
         self.logger.info(
             f"Placed limit order: {trade_type.value} {quantity} {symbol} @ {limit_price}",
             order_id=order_id,
+            strategy=strategy_id,
         )
 
         return order_id
@@ -507,7 +462,9 @@ class OrderManager:
         """
         # Simulate execution at current market price
         # In reality, this would come from exchange fills
-        current_position = self.portfolio_manager.get_position(order.symbol)
+        current_position = self.portfolio_manager.get_position(
+            order.symbol, order.strategy_id
+        )
         if current_position:
             execution_price = current_position.current_price
         else:
@@ -565,6 +522,7 @@ class OrderManager:
             # Create trade event and update portfolio
             trade = TradeEvent(
                 symbol=order.symbol,
+                strategy_id=order.strategy_id,
                 trade_type=order.trade_type,
                 quantity=filled_quantity,
                 price=fill_price,
@@ -616,9 +574,9 @@ class OrderManager:
         """Get order by ID"""
         return self.orders.get(order_id)
 
-    def get_orders_by_symbol(self, symbol: str) -> List[Order]:
+    def get_orders_by_symbol(self, symbol: str, strategy_id: str) -> List[Order]:
         """Get all orders for a symbol"""
-        order_ids = self.orders_by_symbol.get(symbol, [])
+        order_ids = self.orders_by_symbol.get((symbol, strategy_id), [])
         return [self.orders[oid] for oid in order_ids if oid in self.orders]
 
     def get_active_orders(self) -> List[Order]:
@@ -641,6 +599,7 @@ class OrderManager:
 
         # Update fields
         db_order.symbol = order.symbol
+        db_order.strategy_id = order.strategy_id
         db_order.trade_type = order.trade_type.value
         db_order.order_type = order.get_order_type().value
         db_order.quantity_ordered = float(order.quantity_ordered)
@@ -683,6 +642,7 @@ if __name__ == "__main__":
     # First, let's add some initial position to portfolio for testing
     initial_trade = TradeEvent(
         symbol="BTCUSDT",
+        strategy_id="test_strategy",
         trade_type=TradeType.BUY,
         quantity=Decimal("10"),
         price=Decimal("50000"),
@@ -691,22 +651,24 @@ if __name__ == "__main__":
     portfolio.process_trade(initial_trade)
     portfolio.update_price("BTCUSDT", Decimal("52000"), datetime.now(tz=timezone.utc))
 
-    print(f"Initial position: {portfolio.get_position('BTCUSDT').quantity} BTC")
+    print(
+        f"Initial position: {portfolio.get_position('BTCUSDT', "test_strategy").quantity} BTC"
+    )
 
     # Test market order
     order_id_1 = order_manager.place_market_order(
-        "BTCUSDT", TradeType.SELL, Decimal("3")
+        "BTCUSDT", TradeType.SELL, Decimal("3"), "test_strategy"
     )
     print(f"Placed market order: {order_id_1}")
 
     # Test limit order
     order_id_2 = order_manager.place_limit_order(
-        "BTCUSDT", TradeType.SELL, Decimal("2"), Decimal("55000")
+        "BTCUSDT", TradeType.SELL, Decimal("2"), Decimal("55000"), "test_strategy"
     )
     print(f"Placed limit order: {order_id_2}")
 
     # Check positions after orders
-    position = portfolio.get_position("BTCUSDT")
+    position = portfolio.get_position("BTCUSDT", "test_strategy")
     print(f"\nFinal position: {position.quantity} BTC @ avg {position.avg_price}")
     print(f"Unrealized P&L: {position.unrealized_pnl}")
 

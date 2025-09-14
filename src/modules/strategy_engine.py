@@ -29,8 +29,7 @@ import yaml
 from modules.dataprocessor import KlineData
 from modules.logger import get_logger
 from modules.order_manager import OrderManager
-from modules.portfolio_manager import (PortfolioManager, PositionInfo,
-                                       TradeEvent, TradeType)
+from modules.portfolio_manager import PortfolioManager, TradeEvent, TradeType
 
 
 # Strategy Framework (from previous artifact, refined)
@@ -111,120 +110,6 @@ class BaseStrategy(ABC):
         return all(param in parameters for param in required)
 
 
-# Extended Portfolio Manager for Strategy Support
-class StrategyPortfolioManager(PortfolioManager):
-    """
-    Extended PortfolioManager that tracks positions by strategy_id.
-    Each strategy has its own isolated portfolio.
-    """
-
-    def __init__(self, db_url: Optional[str] = None):
-        super().__init__(db_url)
-        self.strategy_positions: Dict[str, Dict[str, PositionInfo]] = {}
-        """Dictionnary of strategies positions
-        - Dict[strategy_id, Dict[symbol, PositionInfo]]
-        """
-        # strategy_id -> symbol -> PositionInfo
-
-    def get_strategy_position(
-        self, strategy_id: str, symbol: str
-    ) -> Optional[PositionInfo]:
-        """Get position for a specific strategy and symbol."""
-        return self.strategy_positions.get(strategy_id, {}).get(symbol)
-
-    def get_strategy_positions(self, strategy_id: str) -> Dict[str, PositionInfo]:
-        """Get all positions for a strategy."""
-        return self.strategy_positions.get(strategy_id, {}).copy()
-
-    # TODO: rewrite to avoid duplicate position update
-    def process_strategy_trade(self, strategy_id: str, trade: TradeEvent) -> bool:
-        """Process a trade for a specific strategy."""
-        # Process trade in main portfolio (for overall tracking)
-        success = self.process_trade(trade)
-        if not success:
-            return False
-
-        # Track in strategy-specific portfolio
-        if strategy_id not in self.strategy_positions:
-            self.strategy_positions[strategy_id] = {}
-
-        symbol = trade.symbol
-        current_pos = self.strategy_positions[strategy_id].get(symbol)
-
-        # Convert trade to signed quantity
-        signed_quantity = (
-            trade.quantity if trade.trade_type == TradeType.BUY else -trade.quantity
-        )
-
-        if current_pos is None:
-            # New position for this strategy
-            from modules.portfolio_manager import PositionSide
-
-            self.strategy_positions[strategy_id][symbol] = PositionInfo(
-                symbol=symbol,
-                quantity=signed_quantity,
-                avg_price=trade.price,
-                current_price=trade.price,
-                unrealized_pnl=Decimal("0"),
-                side=self._determine_side(signed_quantity),
-                last_updated=trade.timestamp,
-            )
-        else:
-            # Update existing position (similar logic to parent class)
-            new_quantity = current_pos.quantity + signed_quantity
-
-            if new_quantity == 0:
-                current_pos.quantity = Decimal("0")
-                current_pos.side = self._determine_side(Decimal("0"))
-                current_pos.unrealized_pnl = Decimal("0")
-            elif (current_pos.quantity >= 0 and signed_quantity >= 0) or (
-                current_pos.quantity <= 0 and signed_quantity <= 0
-            ):
-                # Adding to position - recalculate weighted average
-                total_cost = (current_pos.quantity * current_pos.avg_price) + (
-                    signed_quantity * trade.price
-                )
-                current_pos.avg_price = total_cost / new_quantity
-                current_pos.quantity = new_quantity
-                current_pos.side = self._determine_side(new_quantity)
-            else:
-                # Reducing position
-                current_pos.quantity = new_quantity
-                current_pos.side = self._determine_side(new_quantity)
-
-            current_pos.last_updated = trade.timestamp
-
-        # Update unrealized P&L
-        pos = self.strategy_positions[strategy_id][symbol]
-        pos.unrealized_pnl = self._calculate_unrealized_pnl(pos)
-
-        self.logger.info(
-            f"Strategy trade processed: {strategy_id} - {symbol} {trade.trade_type.value} {trade.quantity}",
-            strategy_position=float(pos.quantity),
-            strategy_pnl=float(pos.unrealized_pnl),
-        )
-
-        return True
-
-    def update_strategy_price(
-        self, strategy_id: str, symbol: str, price: Decimal, timestamp: datetime
-    ):
-        """Update price for a strategy's position."""
-        if (
-            strategy_id in self.strategy_positions
-            and symbol in self.strategy_positions[strategy_id]
-        ):
-            pos = self.strategy_positions[strategy_id][symbol]
-            pos.current_price = price
-            pos.unrealized_pnl = self._calculate_unrealized_pnl(pos)
-            pos.last_updated = timestamp
-
-    def get_strategy_quantity(self, strategy_id: str, symbol: str) -> Decimal:
-        """Get current position quantity for a strategy/symbol."""
-        pos = self.get_strategy_position(strategy_id, symbol)
-        return pos.quantity if pos else Decimal("0")
-
-
 # Strategy Engine with Full Integration
 class StrategyEngine:
     """
@@ -232,7 +117,7 @@ class StrategyEngine:
     """
 
     def __init__(
-        self, portfolio_manager: StrategyPortfolioManager, order_manager: OrderManager
+        self, portfolio_manager: PortfolioManager, order_manager: OrderManager
     ):
         self.logger = get_logger(__name__)
         self.portfolio_manager = portfolio_manager
@@ -401,13 +286,13 @@ class StrategyEngine:
                     data.price_history = data.price_history[-max_history:]
 
                 # Update current position from portfolio
-                data.current_position = self.portfolio_manager.get_strategy_quantity(
-                    strategy_id, symbol
+                data.current_position = self.portfolio_manager.get_position(
+                    symbol, strategy_id
                 )
 
                 # Update strategy portfolio price
-                self.portfolio_manager.update_strategy_price(
-                    strategy_id, symbol, price, timestamp
+                self.portfolio_manager.update_price(
+                    symbol, price, timestamp, strategy_id=strategy_id
                 )
 
                 # Evaluate strategy
@@ -444,17 +329,18 @@ class StrategyEngine:
                 # Note: In real implementation, this should come from order fill confirmation
                 trade = TradeEvent(
                     symbol=signal.symbol,
+                    strategy_id=signal.strategy_id,
                     trade_type=trade_type,
                     quantity=signal.quantity,
                     price=self.portfolio_manager.get_position(
-                        signal.symbol
+                        signal.symbol, signal.strategy_id
                     ).current_price,  # Approximate
                     timestamp=signal.timestamp,
                     trade_id=f"signal_{order_id}",
                 )
 
                 # Update strategy portfolio
-                self.portfolio_manager.process_strategy_trade(signal.strategy_id, trade)
+                self.portfolio_manager.process_trade(trade)
 
             else:
                 self.logger.error(f"Failed to execute signal: {signal}")
@@ -464,7 +350,7 @@ class StrategyEngine:
 
     def get_strategy_performance(self, strategy_id: str) -> Dict:
         """Get performance summary for a strategy."""
-        positions = self.portfolio_manager.get_strategy_positions(strategy_id)
+        positions = self.portfolio_manager.get_all_positions(strategy_id=strategy_id)
 
         total_pnl = Decimal("0")
         total_value = Decimal("0")
