@@ -11,7 +11,6 @@ This shows how the strategy engine integrates with your existing:
 - BaseStrategy - Abstract base class for all strategies
 - StrategyData - Manages state/history/parameters for each strategy instance
 - StrategyEngine - Plugin orchestrator that loads and manages strategies
-- StrategyPortfolioManager - Extended portfolio manager with per-strategy isolation
 - YAML Configuration - Clean, declarative strategy configuration
 - Dynamic Loading - Loads strategy classes from Python files
 """
@@ -32,7 +31,8 @@ from modules.order_manager import OrderManager
 from modules.portfolio_manager import PortfolioManager, TradeEvent, TradeType
 
 
-# Strategy Framework (from previous artifact, refined)
+# Dataclasses
+#########################################"
 class SignalType(Enum):
     BUY = "BUY"
     SELL = "SELL"
@@ -40,6 +40,8 @@ class SignalType(Enum):
 
 @dataclass
 class Signal:
+    """Sent by a strategy when criterias are met"""
+
     symbol: str
     signal_type: SignalType
     quantity: Decimal
@@ -111,6 +113,7 @@ class BaseStrategy(ABC):
 
 
 # Strategy Engine with Full Integration
+###############################################################
 class StrategyEngine:
     """
     Complete strategy engine that integrates with all existing components.
@@ -133,7 +136,9 @@ class StrategyEngine:
         - Dict[strategy_id, Dict[symbol, StrategyData]]
         """
         self.strategy_configs: Dict[str, Dict] = {}  # Store original config
-        """Store original config"""
+        """Store original config
+        - Dict[strategy_id, Dict]
+        """
 
         # Track which symbols we need for WebSocket subscriptions
         self.required_symbols: Set[str] = set()
@@ -208,7 +213,16 @@ class StrategyEngine:
     def register_strategy(
         self, strategy: BaseStrategy, universe: List[str], parameters: Dict[str, Any]
     ) -> bool:
-        """Register a strategy with the engine."""
+        """Register a strategy with the engine.
+
+        **Args:**
+        - strategy
+        - universe: list of symbol to take into account by the strategy
+        - parameters: initial strategy parameters
+
+        **Returns:**
+        - True if the strategy has been registered False otherwise
+        """
         # Validate parameters
         if not strategy.validate_parameters(parameters):
             self.logger.error(f"Invalid parameters for strategy {strategy.strategy_id}")
@@ -240,7 +254,11 @@ class StrategyEngine:
         return True
 
     def get_required_subscriptions(self) -> List[str]:
-        """Get WebSocket subscriptions needed for all strategies."""
+        """Get WebSocket subscriptions needed for all strategies.
+
+        **Returns:**
+        - List of symbols
+        """
         # Convert symbols to kline subscriptions (1-minute intervals)
         subscriptions = []
         for symbol in self.required_symbols:
@@ -269,7 +287,17 @@ class StrategyEngine:
     def update_price(
         self, symbol: str, price: Decimal, timestamp: datetime
     ) -> List[Signal]:
-        """Update price and evaluate strategies."""
+        """Update price and evaluate strategies.
+
+        **Args:**
+        - symbol
+        - price
+        - timestamp
+
+        **Returns:**
+        - List of Signal produced by strategies
+
+        """
         signals = []
 
         for strategy_id, symbol_data_dict in self.strategy_data.items():
@@ -315,7 +343,7 @@ class StrategyEngine:
 
             # Place market order
             order_id = self.order_manager.place_market_order(
-                signal.symbol, trade_type, signal.quantity
+                signal.symbol, trade_type, signal.quantity, signal.strategy_id
             )
 
             if order_id:

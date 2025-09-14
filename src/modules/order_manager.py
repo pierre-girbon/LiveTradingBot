@@ -231,13 +231,11 @@ class OrderManager:
         # In-memory order tracking
         self.orders: Dict[str, Order] = {}
         """Dictionary of orders:
-        - Key: UUID
-        - Value: Order (Market, Limit or Stop)
+        - Dict[Order.order_id, Order]
         """
         self.orders_by_symbol: Dict[(str, str), List[str]] = {}
         """Dictionary of orders by symbol
-        - Key: (symbol, strategy_id)
-        - Value: List[Order.order_id]
+        - Dict[(symbol, strategy_id), List[Order.order_id]]
         """
 
         # Load existing orders from database
@@ -369,6 +367,7 @@ class OrderManager:
         - symbol: Trading symbol
         - trade_type: BUY or SELL
         - quantity: Quantity to trade
+        - strategy_id: strategy id
 
         **Returns:**
         - Order ID if successful, None if failed

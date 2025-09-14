@@ -340,7 +340,7 @@ class TestStrategyEngine:
 
         # Verify order was placed
         mock_order_manager.place_market_order.assert_called_once_with(
-            "BTCUSDT", TradeType.BUY, Decimal("1.0")
+            "BTCUSDT", TradeType.BUY, Decimal("1.0"), "test_strategy"
         )
 
         # Verify strategy trade was processed
@@ -529,7 +529,7 @@ class TestStrategyEngineIntegration:
 
         # Verify: Order placed and portfolio updated
         mock_order_manager.place_market_order.assert_called_once_with(
-            "BTCUSDT", TradeType.BUY, Decimal("1.0")
+            "BTCUSDT", TradeType.BUY, Decimal("1.0"), "test_strategy_1"
         )
         mock_portfolio_manager.process_trade.assert_called_once()
 
