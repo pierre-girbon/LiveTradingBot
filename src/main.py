@@ -7,8 +7,7 @@ import asyncio
 
 from modules.dataprocessor import DataProcessor
 from modules.order_manager import OrderManager
-from modules.strategy_engine_integration import (StrategyEngine,
-                                                 StrategyPortfolioManager)
+from modules.strategy_engine import StrategyEngine, StrategyPortfolioManager
 from modules.websocketclient import RequestType, WebSocketClient
 
 

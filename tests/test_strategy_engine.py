@@ -35,10 +35,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__name__), "src/"))
 from modules.dataprocessor import KlineData, KlineInfo
 from modules.order_manager import OrderManager
 from modules.portfolio_manager import TradeEvent, TradeType
-from modules.strategy_engine_integration import (BaseStrategy, Signal,
-                                                 SignalType, StrategyData,
-                                                 StrategyEngine,
-                                                 StrategyPortfolioManager)
+from modules.strategy_engine import (BaseStrategy, Signal, SignalType,
+                                     StrategyData, StrategyEngine,
+                                     StrategyPortfolioManager)
 
 
 # Test Fixtures

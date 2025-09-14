@@ -21,12 +21,8 @@ import talib
 # Add the parent directory to the path so we can import our base classes
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from modules.strategy_engine_integration import (
-    BaseStrategy,
-    Signal,
-    SignalType,
-    StrategyData,
-)
+from modules.strategy_engine import (BaseStrategy, Signal, SignalType,
+                                     StrategyData)
 
 
 class MovingAverageCrossover(BaseStrategy):

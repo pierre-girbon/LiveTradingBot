@@ -9,7 +9,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__name__), "src/"))
 sys.path.insert(1, os.path.join(os.path.dirname(__name__), "strategies/"))
 
-from src.modules.strategy_engine_integration import Signal, SignalType, StrategyData
+from src.modules.strategy_engine import Signal, SignalType, StrategyData
 from strategies.moving_average import MovingAverageCrossover
 
 
