@@ -13,22 +13,19 @@ Tests cover:
 import os
 import sys
 
+from modules.dataprocessor import KlineData, KlineInfo
+
 sys.path.insert(0, os.path.join(os.path.dirname(__name__), "src/"))
 
 import tempfile
 from datetime import datetime, timezone
 from decimal import Decimal
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 
-from src.modules.portfolio_manager import (
-    PortfolioManager,
-    PositionInfo,
-    PositionSide,
-    TradeEvent,
-    TradeType,
-)
+from src.modules.portfolio_manager import (PortfolioManager, PositionInfo,
+                                           PositionSide, TradeEvent, TradeType)
 
 
 class TestTradeEvent:
@@ -328,6 +325,37 @@ class TestPortfolioManager:
         assert position.side == PositionSide.FLAT
         assert position.unrealized_pnl == Decimal("0")
 
+    def test_process_trade_invalid_inputs(self, portfolio_manager):
+        """Test process_trade with invalid inputs"""
+
+        # Test with non-TradeEvent object
+        result = portfolio_manager.process_trade("invalid_trade")
+        assert result is False
+
+        # Test with zero quantity
+        invalid_trade = TradeEvent(
+            symbol="BTCUSDT",
+            strategy_id="test_strategy",
+            trade_type=TradeType.BUY,
+            quantity=Decimal("0"),  # Invalid
+            price=Decimal("50000"),
+            timestamp=datetime.now(tz=timezone.utc),
+        )
+        result = portfolio_manager.process_trade(invalid_trade)
+        assert result is False
+
+        # Test with negative price
+        invalid_trade.quantity = Decimal("10")
+        invalid_trade.price = Decimal("-1000")  # Invalid
+        result = portfolio_manager.process_trade(invalid_trade)
+        assert result is False
+
+        # Test with empty symbol
+        invalid_trade.price = Decimal("50000")
+        invalid_trade.symbol = ""  # Invalid
+        result = portfolio_manager.process_trade(invalid_trade)
+        assert result is False
+
     def test_update_price(self, portfolio_manager):
         """Test updating price for existing position"""
         # Create position first
@@ -362,6 +390,35 @@ class TestPortfolioManager:
             "NONEXISTENT", Decimal("100"), datetime.now(tz=timezone.utc)
         )
         assert result is True  # Should not fail, just won't update anything
+
+    def test_update_price_value_error(self, portfolio_manager):
+        """Test updating price for existing position"""
+        # Create position first
+        old_timestamp = datetime.now(tz=timezone.utc)
+        trade = TradeEvent(
+            symbol="BTCUSDT",
+            strategy_id="test_strategy",
+            trade_type=TradeType.BUY,
+            quantity=Decimal("10"),
+            price=Decimal("50000"),
+            timestamp=old_timestamp,
+        )
+        portfolio_manager.process_trade(trade)
+
+        # Update price
+        new_timestamp = datetime.now(tz=timezone.utc)
+        result = portfolio_manager.update_price(
+            "BTCUSDT", Decimal("-55000"), new_timestamp
+        )
+
+        assert result is False
+        position = portfolio_manager.positions[("BTCUSDT", "test_strategy")]
+        assert position.current_price == Decimal("50000")
+        assert position.last_updated == old_timestamp
+
+        # Check P&L calculation
+        expected_pnl = 0
+        assert position.unrealized_pnl == expected_pnl
 
     def test_get_position(self, portfolio_manager):
         """Test getting a position"""
@@ -546,6 +603,34 @@ class TestPortfolioManager:
         portfolio_manager.process_trade(trade)
 
         # Mock kline data
+        mock_kline_data = Mock(spec=KlineData)
+        mock_kline_data.symbol = "BTCUSDT"
+        mock_kline = Mock(spec=KlineInfo)
+        mock_kline_data.kline = mock_kline
+        mock_kline_data.kline.close_price = 55000.0
+        mock_kline_data.kline.close_time = datetime.now(tz=timezone.utc)
+
+        # Handle kline data
+        portfolio_manager.handle_kline_data(mock_kline_data)
+
+        # Verify price was updated
+        position = portfolio_manager.positions[("BTCUSDT", "test_strategy")]
+        assert position.current_price == Decimal("55000")
+
+    def test_handle_kline_data_type_error(self, portfolio_manager):
+        """Test handling kline data"""
+        # Create position first
+        trade = TradeEvent(
+            symbol="BTCUSDT",
+            strategy_id="test_strategy",
+            trade_type=TradeType.BUY,
+            quantity=Decimal("10"),
+            price=Decimal("50000"),
+            timestamp=datetime.now(tz=timezone.utc),
+        )
+        portfolio_manager.process_trade(trade)
+
+        # Mock kline data
         mock_kline_data = Mock()
         mock_kline_data.symbol = "BTCUSDT"
         mock_kline_data.kline.close_price = 55000.0
@@ -556,7 +641,7 @@ class TestPortfolioManager:
 
         # Verify price was updated
         position = portfolio_manager.positions[("BTCUSDT", "test_strategy")]
-        assert position.current_price == Decimal("55000")
+        assert position.current_price == Decimal("50000")
 
     def test_handle_trade_data(self, portfolio_manager):
         """Test handling trade data (should not update positions)"""
@@ -588,10 +673,8 @@ class TestPortfolioManager:
             result = portfolio_manager.update_price(
                 "BTCUSDT", None, datetime.now(tz=timezone.utc)
             )
-            # BUG: the result should be False
-            # assert result is False
-            assert result is True
-            # mock_logger.assert_called()
+            assert result is False
+            mock_logger.assert_called()
 
     @patch("modules.portfolio_manager.sessionmaker")
     @patch("modules.portfolio_manager.create_engine")

@@ -23,6 +23,7 @@ from dotenv import load_dotenv
 from sqlalchemy import Column, DateTime, Float, Integer, String, create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
+from modules.dataprocessor import KlineData
 from modules.logger import get_logger
 
 # load environement config
@@ -255,9 +256,26 @@ class PortfolioManager:
         **Returns:**
         - bool: True if trade processed successfully
 
+        **Raises:**
+        - ValueError: If trade data is invalid
+        - TypeError: If trade is not a TradeEvent instance
+
         **Note:** Every trade must have a strategy_id. If none provided, uses trade.strategy_id or MANUAL_STRATEGY
         """
         try:
+            # Input validation
+            if not isinstance(trade, TradeEvent):
+                raise TypeError("trade must be a TradeEvent instance")
+
+            if trade.quantity <= 0:
+                raise ValueError("Trade quantity must be positive")
+
+            if trade.price <= 0:
+                raise ValueError("Trade price must be positive")
+
+            if not trade.symbol or not isinstance(trade.symbol, str):
+                raise ValueError("Trade symbol must be a non-empty string")
+
             # Determine effective strategy_id
             if strategy_id is not None:
                 effective_strategy_id = strategy_id
@@ -352,7 +370,9 @@ class PortfolioManager:
             )
 
             return True
-
+        except (ValueError, TypeError) as e:
+            self.logger.error(f"Invalid trade data: {e}")
+            return False
         except Exception as e:
             self.logger.error(f"Failed to process trade: {e}")
             return False
@@ -378,6 +398,13 @@ class PortfolioManager:
         - bool: True if price updated successfully
         """
         try:
+            # Input Validation
+            if price <= 0:
+                raise ValueError("Trade price must be positive")
+
+            if not symbol or not isinstance(symbol, str):
+                raise ValueError("Trade symbol must be a non-empty string")
+
             updated_count = 0
 
             if strategy_id is not None:
@@ -402,6 +429,9 @@ class PortfolioManager:
             )
             return True
 
+        except ValueError as e:
+            self.logger.error(f"Invalid data: {e}")
+            return False
         except Exception as e:
             self.logger.error(f"Failed to update price: {e}")
             return False
@@ -682,6 +712,10 @@ class PortfolioManager:
     def handle_kline_data(self, kline_data):
         """Handler for kline data from DataProcessor"""
         try:
+            # Input validation
+            if not isinstance(kline_data, KlineData):
+                raise TypeError
+
             symbol = kline_data.symbol
             close_price = Decimal(str(kline_data.kline.close_price))
             timestamp = kline_data.kline.close_time
@@ -691,7 +725,8 @@ class PortfolioManager:
             self.logger.info(
                 "Updated price", symbol=symbol, price=close_price, timestamp=timestamp
             )
-
+        except TypeError as e:
+            self.logger.error(f"Input is not a KlineData: {e}")
         except Exception as e:
             self.logger.error(f"Failed to handle kline data: {e}")
 
