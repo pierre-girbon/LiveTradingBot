@@ -445,11 +445,10 @@ class WebSocketClient:
 
         try:
             async for message in self.websocket:
-                self.logger.debug(f"Received message: {message}")
-
                 # MODIFIED: Added JSON parsing and message routing
                 try:
                     data = json.loads(message)
+                    self.logger.debug(f"Reveived message: {data}")
 
                     # Route messages based on content
                     if "result" in data or "code" in data:
@@ -460,7 +459,9 @@ class WebSocketClient:
                         self.on_message(data)
 
                 except Exception as e:
-                    self.logger.error(f"JSON deserialization error: {e}")
+                    self.logger.error(
+                        f"JSON deserialization error: {e}", message=message
+                    )
 
         except ConnectionClosed:
             self.logger.warning("WebSocket connection closed by server")
