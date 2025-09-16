@@ -13,8 +13,6 @@ Tests cover:
 import os
 import sys
 
-from modules.dataprocessor import KlineData, KlineInfo
-
 sys.path.insert(0, os.path.join(os.path.dirname(__name__), "src/"))
 
 import tempfile
@@ -24,6 +22,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
+from modules.dataprocessor import KlineData, KlineInfo
 from src.modules.portfolio_manager import (PortfolioManager, PositionInfo,
                                            PositionSide, TradeEvent, TradeType)
 
@@ -111,7 +110,7 @@ class TestPortfolioManager:
     @pytest.fixture
     def temp_db_path(self):
         """Create a temporary database for testing"""
-        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=True) as f:
             db_path = f.name
         yield f"sqlite:///{db_path}"
         # Cleanup
@@ -676,15 +675,8 @@ class TestPortfolioManager:
             assert result is False
             mock_logger.assert_called()
 
-    @patch("modules.portfolio_manager.sessionmaker")
-    @patch("modules.portfolio_manager.create_engine")
-    def test_database_operations(
-        self, mock_create_engine, mock_sessionmaker, temp_db_path
-    ):
+    def test_database_operations(self, temp_db_path):
         """Test database save operations"""
-        mock_session = Mock()
-        mock_sessionmaker.return_value.return_value = mock_session
-
         portfolio_manager = PortfolioManager(db_url=temp_db_path)
 
         # Test trade processing with database operations

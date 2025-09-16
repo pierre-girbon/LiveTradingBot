@@ -12,7 +12,6 @@ Key principles:
 4. Optimized for high-frequency strategy operations
 """
 
-import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal, getcontext
@@ -21,8 +20,9 @@ from typing import Dict, Optional
 
 from dotenv import load_dotenv
 from sqlalchemy import Column, DateTime, Float, Integer, String, create_engine
-from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy.orm import sessionmaker
 
+from modules.database import Base, engine, get_db_session
 from modules.dataprocessor import KlineData
 from modules.logger import get_logger
 
@@ -34,7 +34,6 @@ getcontext().prec = 28
 
 # Database setup
 #########################################
-Base = declarative_base()
 
 
 class Position(Base):
@@ -175,14 +174,16 @@ class PortfolioManager:
         self.logger = get_logger(__name__)
 
         # Database setup
-        self.engine = create_engine(
-            db_url if db_url else os.environ.get("DB_URL", "sqlite:///tradebot.db")
-        )
-        """Database Engine"""
+        if db_url:
+            self.engine = create_engine(db_url)
+            session = sessionmaker(bind=self.engine)
+            self.session = session()
+        else:
+            self.engine = engine
+            """Database Engine"""
+            self.session = get_db_session()
+            """Database Session"""
         Base.metadata.create_all(self.engine)
-        Session = sessionmaker(bind=self.engine)
-        self.session = Session()
-        """Database Session"""
 
         # In-memory position cache for fast access
         # Structure: {(symbol, strategy_id): PositionInfo}

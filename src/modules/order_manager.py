@@ -33,6 +33,7 @@ from dotenv import load_dotenv
 from sqlalchemy import Column, DateTime, Float, Integer, String, create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
+from modules.database import Base, engine, get_db_session
 from modules.logger import get_logger
 from modules.portfolio_manager import PortfolioManager, TradeEvent, TradeType
 
@@ -44,7 +45,6 @@ getcontext().prec = 28
 
 # Database setup
 #########################""
-Base = declarative_base()
 
 
 class OrderRecord(Base):
@@ -223,10 +223,15 @@ class OrderManager:
         self.portfolio_manager = portfolio_manager
 
         # Database setup
-        self.engine = create_engine(db_url)
+        if db_url:
+            self.engine = create_engine(db_url)
+            Session = sessionmaker(bind=self.engine)
+            self.session = Session()
+        else:
+            self.engine = engine
+            self.session = get_db_session()
+
         Base.metadata.create_all(self.engine)
-        Session = sessionmaker(bind=self.engine)
-        self.session = Session()
 
         # In-memory order tracking
         self.orders: Dict[str, Order] = {}
